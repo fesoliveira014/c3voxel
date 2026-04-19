@@ -8,10 +8,8 @@ import c3voxel::core;
 import c3voxel::platform;
 import c3voxel::gpu;
 import c3voxel::voxel;
-import c3voxel::game;
-
-const String VS_PATH = "resources/shaders/fullscreen.vert.glsl";
-const String FS_PATH = "resources/shaders/fullscreen.frag.glsl";
+import c3voxel::world;
+import c3voxel::render;
 
 const ulong RELOAD_CHECK_INTERVAL = 30;
 
@@ -36,18 +34,6 @@ fn int main(String[] args)
     cmd.init();
     defer cmd.destroy();
 
-    gpu::ShaderStageSpec[2] fullscreen_specs = {
-        { gpu::ShaderStageKind.VERTEX,   VS_PATH },
-        { gpu::ShaderStageKind.FRAGMENT, FS_PATH },
-    };
-    gpu::Shader? fs_loaded = gpu::shader_load(mem, fullscreen_specs[..]);
-    if (catch err = fs_loaded) {
-        io::eprintfn("Failed to load fullscreen shader: %s", err);
-        return 1;
-    }
-    gpu::Shader fullscreen = fs_loaded;
-    defer gpu::shader_destroy(fullscreen);
-
     voxel::GenerateContext gen;
     if (catch err = gen.init(mem)) {
         io::eprintfn("Failed to load generate shader: %s", err);
@@ -69,33 +55,105 @@ fn int main(String[] args)
     }
     defer rm.destroy();
 
-    voxel::Volume volume;
-    volume.init();
-    defer volume.destroy();
+    render::CompositeContext composite;
+    if (catch err = composite.init(mem)) {
+        io::eprintfn("Failed to load composite shader: %s", err);
+        return 1;
+    }
+    defer composite.destroy();
+
+    voxel::VolumeRing ring;
+    ring.init();
+    defer ring.destroy();
 
     voxel::DistanceField df;
     df.init();
     defer df.destroy();
 
+    world::BlockPool  block_pool;
+    world::HolderPool holder_pool;
+    world::PagePool   page_pool;
+    block_pool.init(mem);
+    holder_pool.init(mem);
+    page_pool.init(mem);
+    defer { block_pool.destroy(); holder_pool.destroy(); page_pool.destroy(); }
+
+    world::BlockId block_id = block_pool.get_or_create(0, 0);
+    world::Block*  block    = block_pool.get(block_id);
+    world::generate_heightmap_cpu(mem, block, 1337u);
+
+    world::HolderId[4] holder_ids;
+    world::PageId[16]  page_ids;
+    int page_cursor = 0;
+
+    for (world::HolderCoord hz = 0; hz < (world::HolderCoord)world::ACTIVE_HOLDERS_PER_AXIS; hz++) {
+        for (world::HolderCoord hx = 0; hx < (world::HolderCoord)world::ACTIVE_HOLDERS_PER_AXIS; hx++) {
+            world::HolderId? hid_opt = holder_pool.get_or_create(hx, hz);
+            if (catch err = hid_opt) {
+                io::eprintfn("Failed to create holder: %s", err);
+                return 1;
+            }
+            world::HolderId hid = hid_opt;
+            int hi = (int)hz * world::ACTIVE_HOLDERS_PER_AXIS + (int)hx;
+            holder_ids[hi] = hid;
+            world::Holder* holder = holder_pool.get(hid);
+
+            for (world::PageCoord lz = 0; lz < (world::PageCoord)world::PAGES_PER_HOLDER; lz++) {
+                for (world::PageCoord lx = 0; lx < (world::PageCoord)world::PAGES_PER_HOLDER; lx++) {
+                    world::PageCoord px = (world::PageCoord)((int)hx * world::PAGES_PER_HOLDER + (int)lx);
+                    world::PageCoord pz = (world::PageCoord)((int)hz * world::PAGES_PER_HOLDER + (int)lz);
+                    world::PageId pid = page_pool.get_or_create(px, pz);
+                    world::Page* page = page_pool.get(pid);
+
+                    float x0 = (float)(int)px * (float)world::PIXELS_PER_PAGE;
+                    float z0 = (float)(int)pz * (float)world::PIXELS_PER_PAGE;
+                    page.world_min = { x0, 0.0f, z0, 0.0f };
+                    page.world_max = { x0 + (float)world::PIXELS_PER_PAGE, (float)world::VOLUME_PITCH, z0 + (float)world::PIXELS_PER_PAGE, 0.0f };
+
+                    int ph_slot = (int)lz * world::PAGES_PER_HOLDER + (int)lx;
+                    holder.pages[ph_slot] = pid;
+                    page_ids[page_cursor++] = pid;
+                }
+            }
+        }
+    }
+
+    float block_extent = (float)world::BLOCK_HEIGHTMAP_PIXELS;
+    core::Vec4 block_origin = { 0.0f, 0.0f, 0.0f, 0.0f };
+    core::Vec4 block_extent_v = { block_extent, (float)world::VOLUME_PITCH, block_extent, 0.0f };
+
+    for (int hi = 0; hi < 4; hi++) {
+        world::Holder* holder = holder_pool.get(holder_ids[hi]);
+        for (int lz = 0; lz < world::PAGES_PER_HOLDER; lz++) {
+            for (int lx = 0; lx < world::PAGES_PER_HOLDER; lx++) {
+                int ph_slot = lz * world::PAGES_PER_HOLDER + lx;
+                world::PageId pid = holder.pages[ph_slot];
+                world::Page* page = page_pool.get(pid);
+
+                int slot = ring.next();
+                gen.dispatch_page(&cmd, &ring, slot, page, block.heightmap, block_origin, block_extent_v, (core::Seconds)0.0f);
+
+                voxel::Volume tmp_vol = { .tex = ring.slot(slot) };
+                jfa.build(&cmd, &tmp_vol, &df);
+
+                core::IVec2 write_offset = { lx * world::PIXELS_PER_PAGE, lz * world::PIXELS_PER_PAGE };
+                rm.dispatch_into(&cmd, &ring, slot, &df, page, &holder.fbo_layer0, write_offset);
+            }
+        }
+    }
+
     platform::FrameClock clock;
     clock.init();
-
-    gen.dispatch(&cmd, &volume, 0.0);
-    jfa.build(&cmd, &volume, &df);
 
     while (!win.should_close()) {
         clock.tick();
 
         if (win.key_down(glfw::KEY_ESCAPE)) win.request_close();
         if (clock.frame % RELOAD_CHECK_INTERVAL == 0) {
-            gpu::shader_reload_if_changed(fullscreen);
-            bool gen_changed  = gpu::shader_reload_if_changed(gen.shader);
-            // `|` on bool is non-short-circuiting — want both shaders probed every cycle,
-            // not just the first. `||` would skip the step reload whenever init reloaded.
-            bool jfa_changed  = gpu::shader_reload_if_changed(jfa.init_shader)
-                              | gpu::shader_reload_if_changed(jfa.step_shader);
-            if (gen_changed) gen.dispatch(&cmd, &volume, (core::Seconds)(float)clock.time);
-            if (gen_changed || jfa_changed) jfa.build(&cmd, &volume, &df);
+            gpu::shader_reload_if_changed(composite.shader);
+            gpu::shader_reload_if_changed(gen.shader);
+            gpu::shader_reload_if_changed(jfa.init_shader);
+            gpu::shader_reload_if_changed(jfa.step_shader);
             gpu::shader_reload_if_changed(rm.shader);
         }
 
@@ -103,23 +161,33 @@ fn int main(String[] args)
             io::printfn("frame %d  dt=%.2f ms", clock.frame, clock.dt * 1000.0);
         }
 
-        rm.resize(win.fb_width, win.fb_height);
+        world::Holder*[4] holders = {
+            holder_pool.get(holder_ids[0]),
+            holder_pool.get(holder_ids[1]),
+            holder_pool.get(holder_ids[2]),
+            holder_pool.get(holder_ids[3]),
+        };
 
-        float aspect         = (float)win.fb_width / (float)win.fb_height;
-        float zoom           = 1.25;
-        core::Vec3 target    = { 0.0, 0.0, 0.0 };
-        core::Degrees azim   = (core::Degrees)(45.0 + (float)clock.time * 30.0);
-        game::CameraState cam = game::camera_isometric(target, zoom, aspect, azim);
+        float half_w = (float)win.fb_width * 0.5f;
+        float half_h = (float)win.fb_height * 0.5f;
+        core::Vec4[4] screen_min = {
+            { 0.0f,   0.0f,   0.0f, 0.0f },
+            { half_w, 0.0f,   0.0f, 0.0f },
+            { 0.0f,   half_h, 0.0f, 0.0f },
+            { half_w, half_h, 0.0f, 0.0f },
+        };
+        core::Vec4[4] screen_max = {
+            { half_w,             half_h,             0.0f, 0.0f },
+            { (float)win.fb_width, half_h,             0.0f, 0.0f },
+            { half_w,             (float)win.fb_height, 0.0f, 0.0f },
+            { (float)win.fb_width, (float)win.fb_height, 0.0f, 0.0f },
+        };
 
         cmd.begin_frame();
-        rm.dispatch(&cmd, &volume, &df, cam.to_view());
-
         cmd.bind_default_framebuffer();
         cmd.set_viewport(0, 0, win.fb_width, win.fb_height);
         cmd.clear(0.02, 0.02, 0.04, 1.0);
-        cmd.bind_shader(fullscreen);
-        cmd.bind_texture_2d(0, rm.target);
-        cmd.draw_fullscreen_quad();
+        composite.dispatch(&cmd, holders[..], screen_min[..], screen_max[..], win.fb_width, win.fb_height);
         cmd.end_frame();
 
         win.poll();
