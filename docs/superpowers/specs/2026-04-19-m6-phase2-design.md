@@ -49,6 +49,188 @@ Phase 1 design: `docs/superpowers/specs/2026-04-19-m6-phase1-multi-page-hierarch
 
 ---
 
+## 2-addendum. Post-review locked decisions
+
+Spec review surfaced two undecided points and six under-specified
+sections. All resolved here; original §2 table kept intact for
+brainstorm audit trail.
+
+| # | Question | Decision |
+|---|----------|----------|
+| 11 | HolderPool eviction contract | `fn void HolderPool.evict(&self, HolderId id)` bumps the slot's `generation`, calls `gpu::framebuffer_destroy(&slot.holder.fbo_layer0)`, removes the `(hx, hz)` entry from `lookup`, sets `alive = false`, calls `BlockPool.decrement_ref(block_of(holder))`. No free-list; next `get_or_create` reuses the lowest dead slot. |
+| 12 | Block lifecycle | **Implement ref-counting** (no leak). `Block` gains `int holder_ref_count`. `HolderPool.get_or_create` increments it on newly allocated holders; `evict` decrements. `BlockPool.get_or_create` increments on reuse of an existing block. `BlockPool.decrement_ref` evicts the block (destroys heightmap, bumps generation) when count reaches zero. |
+| 13 | Dirty-queue sort key | `(distance_from_pan_target, enqueue_frame_age)` with distance primary, frame-age secondary so nothing waits more than ~32 frames before getting a turn regardless of pan direction. |
+| 14 | Zoom invalidation budget | 16 holders × 4 pages = 64 page dispatches. Budget is 4 **holders/frame** (= 16 page dispatches/frame). Full rebuild = 4 frames. Spec §14 rewritten to quote holders, not page dispatches. |
+| 15 | Sprite FBO size | **640²** (not 512²). Iso diamond of a 256-voxel holder spans screen.x = 512 exactly at 1× zoom; 512² leaves zero X margin. 640² gives +25 % both axes, survives 2× zoom clipping + 1-voxel filter safety. Memory 640² × (RGBA8 + R16F) × 16 holders = 37.5 MB (was 24 MB). |
+| 16 | Composite UBO bitmask | Per-slot `alive_bits.x` is a `uint` bitmask; `.yzw` std140 padding. Singular (§8 "alive_bit" typo) renamed to `alive_bits` throughout. No per-slot `active_count`. |
+| 17 | Platform input ownership | `MouseState` lives as a field on `Window`; GLFW cursor/button/scroll callbacks write to `win.mouse` via the existing user-pointer registration. `input::poll(&out, &win)` reads and clears the accumulators (scroll delta, drag delta), producing a consumable snapshot for the frame. No `Window.init` signature change. |
+| 18 | DirtyQueue plumbing | `DirtyQueue` is owned by `main` (not a pool field). Passed as `DirtyQueue* dirty` to both `streaming::update` and `streaming::drain_dirty`. |
+
+---
+
+### 2-addendum.1 Iso projection — canonical math
+
+Added here rather than in `docs/ARCHITECTURE.md`; that doc's
+"Identifiers & Coordinates" section alludes to the projection but
+doesn't derive it. Authoritative source is this subsection.
+
+Constants (computed once per frame from `cam.zoom_scale`):
+
+```
+ISO_ELEVATION_RAD = 35.264 * π / 180   // ≈ 0.6155
+ISO_AZIMUTH_RAD   = 45 * π / 180       // ≈ 0.7854
+tilt              = sin(ISO_ELEVATION_RAD) / 2   // ≈ 0.2887
+zoom              = cam.zoom_scale               // 0.5, 1.0, or 2.0
+```
+
+**Forward map** (world → screen pixels, relative to camera target):
+
+```
+screen.x = zoom * ( (world.x - cam.pan_target.x) - (world.z - cam.pan_target.z) )
+screen.y = zoom * ( -tilt * ((world.x - cam.pan_target.x) + (world.z - cam.pan_target.z)) - world.y )
+```
+
+**Inverse map** for the iso raymarch (sprite pixel → world ray origin).
+Pick the holder's top Y as the near plane (`y_near = holder.world_max.y`),
+then recover `(world.x, world.z)`:
+
+```
+S = screen.x / zoom      // = x - z
+T = screen.y / zoom      // = -tilt * (x + z) - y_near
+U = -(T + y_near) / tilt // = x + z
+
+world.x = (U + S) / 2
+world.z = (U - S) / 2
+world.y = y_near
+```
+
+**Iso forward direction** (all sprite pixels share it):
+
+```
+iso_forward = normalize(vec3( sin(ISO_AZIMUTH_RAD) * cos(ISO_ELEVATION_RAD),
+                             -sin(ISO_ELEVATION_RAD),
+                              cos(ISO_AZIMUTH_RAD) * cos(ISO_ELEVATION_RAD) ))
+            ≈ normalize(vec3(0.577, -0.577, 0.577))
+```
+
+The raymarch compute shader receives `iso_forward`, `zoom`, `tilt`,
+and `cam.pan_target` via the UBO. Ray origin per pixel = the inverse
+map above using `screen = sprite_corner + gl_GlobalInvocationID.xy`,
+where `sprite_corner` is the holder's iso-projected upper-left.
+
+### 2-addendum.2 Raymarch UBO (updated)
+
+```c3
+struct RayMarchUniforms @packed @align(16) {
+    core::Vec4  iso_forward;         // xyz
+    core::Vec4  pan_target;          // xyz; w = zoom
+    core::Vec4  holder_world_min;    // xyz; w unused
+    core::Vec4  holder_world_max;    // xyz; w unused
+    core::Vec4  page_world_min;      // xyz (page-specific sub-region)
+    core::Vec4  page_world_max;      // xyz
+    core::Vec4  sprite_corner;       // xy = holder's iso screen pixel origin (top-left)
+    core::IVec4 resolution;          // x, y = sprite FBO (640²)
+    core::IVec4 pitches;
+    core::IVec4 page_pixels;         // x, y = iso-projected page sub-rect
+    core::IVec4 write_offset;        // x, y = this page's sub-rect offset into sprite FBO
+    float       tilt;
+    float       zoom;
+    float[2]    _pad;
+}
+```
+
+### 2-addendum.3 Composite UBO (updated)
+
+```c3
+struct CompositeUniforms @packed @align(16) {
+    core::Vec4[16] screen_min;       // iso-projected screen corners per pool slot
+    core::Vec4[16] screen_max;
+    core::IVec4    screen_size;
+    core::IVec4    alive_bits;       // .x = bitmask of live slots; .yzw padding
+}
+```
+
+`alive_bits.x` is a 16-bit bitmask (extendable if `POOL_SIZE` grows).
+Composite fragment loop tests `(alive_bits.x & (1 << i)) != 0`.
+
+### 2-addendum.4 Starvation policy (I4)
+
+Dirty queue enqueue timestamps the entry with `pool.current_frame`.
+Sort key before each drain:
+
+```
+priority(e) = (distance_from_pan_target(e.holder_id),
+               max(0, FRAME_STARVATION_CAP - (pool.current_frame - e.enqueue_frame)))
+```
+
+With `FRAME_STARVATION_CAP = 32`, an entry whose `enqueue_age` reaches
+32 frames gets its secondary key clamped to 0 — tied with closer entries
+— making it drainable even during sustained pans. Implementation: the
+dirty queue is small (bounded by visible rect ≈ 16), sort each frame is
+cheap.
+
+### 2-addendum.5 Acceptance criteria (§13) — tightened
+
+Replace "No holders ever flicker or revert" with:
+
+- Pool slot generations strictly increase on eviction; a post-evict
+  `HolderPool.get(old_id)` returns `null`.
+- A holder's sprite never *changes content* between generation and
+  eviction (regeneration only happens at acquire time).
+- During sustained pans, the visible-rect edge may display "hold"
+  (clear-colour) for up to 4 frames while the budget fills; never
+  flickers between two valid states.
+- Zoom-change rebuild visible as a 4-frame "wave" across the pool;
+  never partial-state where some slots are at old zoom and some at
+  new.
+
+### 2-addendum.6 drain_dirty signature
+
+```c3
+fn void streaming::drain_dirty(
+    Commands*         cmd,
+    GenerateContext*  gen,
+    JumpFloodContext* jfa,
+    RayMarchContext*  rm,
+    VolumeRing*       ring,
+    DistanceField*    df,
+    BlockPool*        blocks,
+    HolderPool*       holders,
+    PagePool*         pages,
+    GpuPool*          pool,
+    DirtyQueue*       dirty,
+    CameraState*      cam,
+    int               budget
+);
+```
+
+§6 worked example (what `holders.get(hid) == null` means): between
+`pool.acquire(hid)` and `dirty.drain`, a *different* `pool.acquire`
+for an even-closer holder could evict `hid` if the pool saturates
+within the same frame. The drain skips those entries.
+
+### 2-addendum.7 §14 revisions
+
+- Bullet 1 (tilt overhang) retired — Decision 15 fixes it by bumping
+  sprite FBO to 640².
+- Bullet 3 (zoom invalidation) corrected: 16 holders invalidated at
+  4 holders/frame = 4 frames (= 64 page dispatches at 16 per frame).
+- Bullet 5 (block ref counting) retired — Decision 12 resolves it.
+
+### 2-addendum.8 Memory budget (§12) — updated
+
+| Resource | Count | Size each | Total |
+|----------|-------|-----------|-------|
+| Holder sprite FBO (RGBA8+R16F 640²) | 16 | 2.34 MB | 37.5 MB |
+| Block heightmap cache | ~9 active (ref-counted) | 1 MB | 9 MB |
+| VolumeRing (RGBA8 128³) | 4 | 8 MB | 32 MB |
+| DF ring (R8UI 32³ × 2) | 8 | 32 KB | 256 KB |
+| Composite UBO | 1 | ~600 B | <1 KB |
+| Dirty queue + pool state | 1 | < 4 KB | 4 KB |
+| **Total** | | | **~79 MB** |
+
+---
+
 ## 2. Locked decisions (from brainstorm)
 
 | # | Question | Decision |
