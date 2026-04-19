@@ -9,7 +9,7 @@ typedef HolderId = inline core::Handle;
 
 const HolderId HOLDER_INVALID = (HolderId)core::HANDLE_INVALID_VALUE;
 
-const int HOLDER_FBO_SIZE = PIXELS_PER_PAGE * PAGES_PER_HOLDER * 2;
+const int HOLDER_FBO_SIZE = PIXELS_PER_PAGE * PAGES_PER_HOLDER;
 
 struct Holder {
     HolderCoord      hx;

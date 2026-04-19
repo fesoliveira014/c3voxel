@@ -79,31 +79,33 @@ fn void RayMarchContext.resize(&self, world::Pixel w, world::Pixel h)
 
 fn void RayMarchContext.dispatch(&self, gpu::Commands* cmd, Volume* v, DistanceField* df, View view)
 {
-    self.dispatch_raw(cmd, v.tex, df, view, self.target, self.height_target, self.target_w, self.target_h, { 0, 0 }, { self.target_w, self.target_h });
+    core::Vec4 wmin = { -1.0f, -1.0f, -1.0f, 0.0f };
+    core::Vec4 wmax = {  1.0f,  1.0f,  1.0f, 0.0f };
+    self.dispatch_raw(cmd, v.tex, df, view, wmin, wmax, self.target, self.height_target, self.target_w, self.target_h, { 0, 0 }, { self.target_w, self.target_h });
 }
 
 fn void RayMarchContext.dispatch_into(&self, gpu::Commands* cmd, VolumeRing* ring, int slot, DistanceField* df, world::Page* page, gpu::Framebuffer* holder_fbo, core::IVec2 write_offset)
 {
     View v = {
-        .position      = { (page.world_min.x + page.world_max.x) * 0.5f, (page.world_min.y + page.world_max.y) * 0.5f, (page.world_min.z + page.world_max.z) * 0.5f, 0.0f },
+        .position      = { (page.world_min.x + page.world_max.x) * 0.5f, page.world_max.y + 1.0f, (page.world_min.z + page.world_max.z) * 0.5f, 0.0f },
         .forward       = { 0.0f, -1.0f, 0.0f, 0.0f },
         .right         = { 1.0f,  0.0f, 0.0f, 0.0f },
         .up            = { 0.0f,  0.0f, 1.0f, 0.0f },
         .half_extent_x = (page.world_max.x - page.world_min.x) * 0.5f,
         .half_extent_y = (page.world_max.z - page.world_min.z) * 0.5f,
     };
-    self.dispatch_raw(cmd, ring.slot(slot), df, v, holder_fbo.colors[0], holder_fbo.colors[1], holder_fbo.width, holder_fbo.height, write_offset, { world::PIXELS_PER_PAGE, world::PIXELS_PER_PAGE });
+    self.dispatch_raw(cmd, ring.slot(slot), df, v, page.world_min, page.world_max, holder_fbo.colors[0], holder_fbo.colors[1], holder_fbo.width, holder_fbo.height, write_offset, { world::PIXELS_PER_PAGE, world::PIXELS_PER_PAGE });
 }
 
-fn void RayMarchContext.dispatch_raw(&self, gpu::Commands* cmd, gpu::Texture3D volume, DistanceField* df, View view, gpu::Texture2D color_out, gpu::Texture2D height_out, world::Pixel out_w, world::Pixel out_h, core::IVec2 write_offset, core::IVec2 page_pixels)
+fn void RayMarchContext.dispatch_raw(&self, gpu::Commands* cmd, gpu::Texture3D volume, DistanceField* df, View view, core::Vec4 world_min, core::Vec4 world_max, gpu::Texture2D color_out, gpu::Texture2D height_out, world::Pixel out_w, world::Pixel out_h, core::IVec2 write_offset, core::IVec2 page_pixels)
 {
     RayMarchUniforms u = {
         .camera_pos     = view.position,
         .camera_forward = view.forward,
         .camera_right   = view.right,
         .camera_up      = view.up,
-        .world_min      = { -1.0, -1.0, -1.0, 0.0 },
-        .world_max      = {  1.0,  1.0,  1.0, 0.0 },
+        .world_min      = world_min,
+        .world_max      = world_max,
         .resolution     = { (int)out_w, (int)out_h, 0, 0 },
         .pitches        = { world::VOLUME_PITCH, DF_PITCH, CELL_VOXELS, 0 },
         .page_pixels    = { page_pixels.x, page_pixels.y, 0, 0 },
