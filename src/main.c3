@@ -86,6 +86,10 @@ fn int main(String[] args)
     float      zoom_scale = 1.0f;
     bool       f12_prev   = false;
 
+    world::PlantNodeList plant_scratch;
+    plant_scratch.init(mem, 64);
+    defer plant_scratch.free();
+
     platform::FrameClock clock;
     clock.init();
 
@@ -140,7 +144,7 @@ fn int main(String[] args)
         cmd.time_push("generate");
         drain_dirty(&cmd, &gen, &rm, &ring,
                     &block_pool, &holder_pool, &page_pool, &pool, &dirty,
-                    pan_target, world::MAX_REGEN_PER_FRAME);
+                    &plant_scratch, pan_target, world::MAX_REGEN_PER_FRAME);
         cmd.time_pop();
 
         cmd.begin_frame();
@@ -262,6 +266,7 @@ fn void drain_dirty(
     world::PagePool*         pages,
     world::GpuPool*          pool,
     world::DirtyQueue*       dirty,
+    world::PlantNodeList*    plant_scratch,
     core::Vec3               pan_target,
     int                      budget)
 {
@@ -296,7 +301,7 @@ fn void drain_dirty(
                 int ph = lz * world::PAGES_PER_HOLDER + lx;
                 world::Page* page = pages.get(holder.pages[ph]);
                 if (page == null) continue;
-                world::geometry_generate_smoke_test(&page.geometry, page);
+                world::geometry_generate_page(&page.geometry, page, plant_scratch);
                 int slot = ring.next();
                 gen.dispatch_page(cmd, ring, slot, page, block.heightmap, block_origin, block_extent, (core::Seconds)0.0f);
                 page_vols[ph]  = ring.slot(slot);
