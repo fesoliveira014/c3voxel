@@ -2,6 +2,7 @@
 out/
 docs/superpowers/*
 !docs/superpowers/specs/
+!docs/superpowers/plans/
 .claude/settings.local.json
 .bridge/errors.log
 resources/shaders/build/*.spv
