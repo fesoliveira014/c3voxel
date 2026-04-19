@@ -9,10 +9,11 @@ typedef PageId = inline core::Handle;
 const PageId PAGE_INVALID = (PageId)core::HANDLE_INVALID_VALUE;
 
 struct Page {
-    PageCoord  px;
-    PageCoord  pz;
-    core::Vec4 world_min;
-    core::Vec4 world_max;
+    PageCoord    px;
+    PageCoord    pz;
+    core::Vec4   world_min;
+    core::Vec4   world_max;
+    PageGeometry geometry;
 }
 
 struct PageSlot {
@@ -38,6 +39,9 @@ fn void PagePool.init(&self, Allocator allocator, usz capacity = 64)
 
 fn void PagePool.destroy(&self)
 {
+    for (usz i = 0; i < self.storage.len(); i++) {
+        self.storage[i].page.geometry.free();
+    }
     self.storage.free();
     self.lookup.free();
     self.allocator = null;
@@ -53,11 +57,12 @@ fn PageId PagePool.get_or_create(&self, PageCoord px, PageCoord pz)
 
     usz idx = self.storage.len();
     PageSlot slot = {
-        .page       = { .px = px, .pz = pz, .world_min = {0,0,0,0}, .world_max = {0,0,0,0} },
+        .page       = { .px = px, .pz = pz, .world_min = {0,0,0,0}, .world_max = {0,0,0,0}, .geometry = {} },
         .generation = 0,
         .alive      = true,
     };
     self.storage.push(slot);
+    self.storage[idx].page.geometry.init(self.allocator);
     self.lookup.set(key, (int)idx);
     return (PageId)core::handle_pack((uint)idx, 0);
 }
