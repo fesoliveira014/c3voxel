@@ -28,6 +28,15 @@ Module convention: top-level files declare `module c3voxel;` (see `src/main.c3`)
 
 Third-party C3 libraries go in `lib/` (already on `dependency-search-paths`); list them under `dependencies` in `project.json` to link.
 
+### Conventions
+
+The following overrule `c3-expert`:
+
+- Variable names use `snake_case`
+- Function/method names use `camelCame`
+- Struct/Enum names use `PascalCase`
+- Constants/enum values use `SCREAMING_SNAKE_CASE`
+
 ## Layout
 
 - `src/` — implementation. Entry point is `src/main.c3`.
