@@ -17,6 +17,7 @@ struct Block {
     HolderId[HOLDERS_PER_BLOCK * HOLDERS_PER_BLOCK] holders;
     gpu::Texture2D heightmap;
     bool           heightmap_dirty;
+    int            holder_ref_count;
 }
 
 struct BlockSlot {
@@ -56,6 +57,7 @@ fn BlockId BlockPool.get_or_create(&self, BlockCoord cx, BlockCoord cz)
     core::IVec3 key = { (int)cx, 0, (int)cz };
     if (try found = self.lookup.get(key)) {
         usz idx = (usz)found;
+        self.storage[idx].block.holder_ref_count++;
         return (BlockId)core::handle_pack((uint)idx, (uint)self.storage[idx].generation);
     }
 
@@ -69,11 +71,12 @@ fn BlockId BlockPool.get_or_create(&self, BlockCoord cx, BlockCoord cz)
     usz idx = self.storage.len();
     BlockSlot slot = {
         .block = {
-            .cx              = cx,
-            .cz              = cz,
-            .holders         = {},
-            .heightmap       = hm,
-            .heightmap_dirty = true,
+            .cx               = cx,
+            .cz               = cz,
+            .holders          = {},
+            .heightmap        = hm,
+            .heightmap_dirty  = true,
+            .holder_ref_count = 1,
         },
         .generation = 0,
         .alive      = true,
@@ -82,6 +85,28 @@ fn BlockId BlockPool.get_or_create(&self, BlockCoord cx, BlockCoord cz)
     self.storage.push(slot);
     self.lookup.set(key, (int)idx);
     return (BlockId)core::handle_pack((uint)idx, 0);
+}
+
+fn void BlockPool.decrement_ref(&self, BlockId id)
+{
+    uint h = (uint)id;
+    if (h == core::HANDLE_INVALID_VALUE) return;
+    uint idx = core::handle_index(h);
+    uint gen = core::handle_gen(h);
+    if (idx >= self.storage.len()) return;
+    BlockSlot* slot = &self.storage[idx];
+    if (!slot.alive) return;
+    if ((uint)slot.generation != gen) return;
+    if (slot.block.holder_ref_count <= 0) return;
+    slot.block.holder_ref_count--;
+    if (slot.block.holder_ref_count == 0) {
+        gpu::texture2d_destroy(slot.block.heightmap);
+        slot.block.heightmap = gpu::TEXTURE2D_INVALID;
+        slot.alive           = false;
+        slot.generation++;
+        core::IVec3 key = { (int)slot.block.cx, 0, (int)slot.block.cz };
+        (void)self.lookup.remove(key);
+    }
 }
 
 fn Block* BlockPool.get(&self, BlockId id)

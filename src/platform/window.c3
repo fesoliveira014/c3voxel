@@ -35,6 +35,7 @@ struct Window {
     int  fb_height;
     bool resized;
     bool[glfw::KEY_LAST + 1] keys;
+    MouseState mouse;
 }
 
 fn void? Window.init(&self, WindowConfig cfg)
@@ -61,6 +62,7 @@ fn void? Window.init(&self, WindowConfig cfg)
     self.fb_height = cfg.height;
     self.resized   = false;
     for (int i = 0; i <= glfw::KEY_LAST; i++) self.keys[i] = false;
+    self.mouse = { 0.0, 0.0, 0.0, 0.0, false, 0 };
 
     glfw::makeContextCurrent(handle);
     glfw::swapInterval(cfg.vsync ? 1 : 0);
@@ -69,6 +71,9 @@ fn void? Window.init(&self, WindowConfig cfg)
     glfw::setWindowUserPointer(handle, self);
     glfw::setFramebufferSizeCallback(handle, &fb_size_cb);
     glfw::setKeyCallback(handle, &key_cb);
+    glfw::setCursorPosCallback(handle, &cursor_pos_cb);
+    glfw::setMouseButtonCallback(handle, &mouse_button_cb);
+    glfw::setScrollCallback(handle, &scroll_cb);
 }
 
 fn void Window.destroy(&self)
@@ -122,6 +127,38 @@ fn void key_cb(glfw::GlfwWindow* win, int key, int scancode, int action, int mod
         self.keys[key] = true;
     } else if (action == (int)glfw::RELEASE) {
         self.keys[key] = false;
+    }
+}
+
+fn void cursor_pos_cb(glfw::GlfwWindow* win, double xpos, double ypos) @private
+{
+    Window* self = (Window*)glfw::getWindowUserPointer(win);
+    if (self == null) return;
+    if (self.mouse.left_down) {
+        self.mouse.dx += xpos - self.mouse.x;
+        self.mouse.dy += ypos - self.mouse.y;
+    }
+    self.mouse.x = xpos;
+    self.mouse.y = ypos;
+}
+
+fn void mouse_button_cb(glfw::GlfwWindow* win, int button, int action, int mods) @private
+{
+    Window* self = (Window*)glfw::getWindowUserPointer(win);
+    if (self == null) return;
+    if (button == (int)glfw::MOUSE_BUTTON_LEFT) {
+        self.mouse.left_down = action == (int)glfw::PRESS;
+    }
+}
+
+fn void scroll_cb(glfw::GlfwWindow* win, double xoffset, double yoffset) @private
+{
+    Window* self = (Window*)glfw::getWindowUserPointer(win);
+    if (self == null) return;
+    if (yoffset > 0.5) {
+        self.mouse.scroll_steps++;
+    } else if (yoffset < -0.5) {
+        self.mouse.scroll_steps--;
     }
 }
 

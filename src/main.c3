@@ -88,7 +88,7 @@ fn int main(String[] args)
 
     for (world::HolderCoord hz = 0; hz < (world::HolderCoord)world::ACTIVE_HOLDERS_PER_AXIS; hz++) {
         for (world::HolderCoord hx = 0; hx < (world::HolderCoord)world::ACTIVE_HOLDERS_PER_AXIS; hx++) {
-            world::HolderId? hid_opt = holder_pool.get_or_create(hx, hz);
+            world::HolderId? hid_opt = holder_pool.get_or_create(hx, hz, block_id);
             if (catch err = hid_opt) {
                 io::eprintfn("Failed to create holder: %s", err);
                 return 1;

@@ -14,6 +14,7 @@ const int HOLDER_FBO_SIZE = PIXELS_PER_PAGE * PAGES_PER_HOLDER;
 struct Holder {
     HolderCoord      hx;
     HolderCoord      hz;
+    BlockId          block_id;
     PageId[PAGES_PER_HOLDER * PAGES_PER_HOLDER] pages;
     gpu::Framebuffer fbo_layer0;
 }
@@ -50,7 +51,7 @@ fn void HolderPool.destroy(&self)
     self.allocator = null;
 }
 
-fn HolderId? HolderPool.get_or_create(&self, HolderCoord hx, HolderCoord hz)
+fn HolderId? HolderPool.get_or_create(&self, HolderCoord hx, HolderCoord hz, BlockId block_id)
 {
     core::IVec3 key = { (int)hx, 0, (int)hz };
     if (try found = self.lookup.get(key)) {
@@ -69,7 +70,7 @@ fn HolderId? HolderPool.get_or_create(&self, HolderCoord hx, HolderCoord hz)
 
     usz idx = self.storage.len();
     HolderSlot slot = {
-        .holder     = { .hx = hx, .hz = hz, .pages = {}, .fbo_layer0 = fbo },
+        .holder     = { .hx = hx, .hz = hz, .block_id = block_id, .pages = {}, .fbo_layer0 = fbo },
         .generation = 0,
         .alive      = true,
     };
@@ -77,6 +78,27 @@ fn HolderId? HolderPool.get_or_create(&self, HolderCoord hx, HolderCoord hz)
     self.storage.push(slot);
     self.lookup.set(key, (int)idx);
     return (HolderId)core::handle_pack((uint)idx, 0);
+}
+
+fn void HolderPool.evict(&self, HolderId id, BlockPool* blocks)
+{
+    uint h = (uint)id;
+    if (h == core::HANDLE_INVALID_VALUE) return;
+    uint idx = core::handle_index(h);
+    uint gen = core::handle_gen(h);
+    if (idx >= self.storage.len()) return;
+    HolderSlot* slot = &self.storage[idx];
+    if (!slot.alive) return;
+    if ((uint)slot.generation != gen) return;
+
+    BlockId parent_block = slot.holder.block_id;
+    gpu::framebuffer_destroy(&slot.holder.fbo_layer0);
+    core::IVec3 key = { (int)slot.holder.hx, 0, (int)slot.holder.hz };
+    (void)self.lookup.remove(key);
+    slot.alive = false;
+    slot.generation++;
+
+    blocks.decrement_ref(parent_block);
 }
 
 fn Holder* HolderPool.get(&self, HolderId id)
