@@ -20,7 +20,7 @@ struct TimerNode {
     double    gpu_ms;                    // filled by resolve_prev
 }
 
-struct TimerFrame @local {
+struct TimerFrame {
     TimerNode[MAX_TIMER_NODES] nodes;
     int                         node_count;
     int                         root;     // first top-level node index, NODE_NONE if empty
@@ -113,22 +113,22 @@ fn void Timer.dump(&self)
         return;
     }
     io::printfn("[timer] frame %d", self.frame_index - 1);
-    dump_node(frame, frame.root, 0);
+    NodeIndex idx = frame.root;
+    while (idx != NODE_NONE) {
+        dump_subtree(frame, idx, 0);
+        idx = frame.nodes[idx].next_sibling;
+    }
 }
 
-fn void dump_node(TimerFrame* frame, NodeIndex idx, int depth) @local
+fn void dump_subtree(TimerFrame* frame, NodeIndex idx, int depth) @local
 {
     TimerNode* n = &frame.nodes[idx];
     for (int i = 0; i < depth; i++) io::print("  ");
     io::printfn("%s: %.3f ms", n.label, n.gpu_ms);
     NodeIndex child = n.first_child;
     while (child != NODE_NONE) {
-        dump_node(frame, child, depth + 1);
+        dump_subtree(frame, child, depth + 1);
         child = frame.nodes[child].next_sibling;
-    }
-    NodeIndex sibling = n.next_sibling;
-    if (depth == 0 && sibling != NODE_NONE) {
-        dump_node(frame, sibling, depth);
     }
 }
 
