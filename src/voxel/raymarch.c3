@@ -122,8 +122,8 @@ fn void RayMarchContext.dispatch_raw(&self, gpu::Commands* cmd, gpu::Texture3D v
     cmd.bind_shader(self.shader);
     cmd.bind_texture(0, volume);
     cmd.bind_texture(1, df.sampled());
-    cmd.bind_image_2d(2, color_out,  gpu::Access.WRITE_ONLY, gpu::Format.RGBA8);
-    cmd.bind_image_2d(3, height_out, gpu::Access.WRITE_ONLY, gpu::Format.R16F);
+    cmd.bind_image_2d(2, color_out,  gpu::Access.WRITE_ONLY);
+    cmd.bind_image_2d(3, height_out, gpu::Access.WRITE_ONLY);
     cmd.bind_ubo(4, self.ubo, 0, RayMarchUniforms.sizeof);
 
     int gx = (page_pixels.x + 7) / 8;

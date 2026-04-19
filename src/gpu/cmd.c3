@@ -42,22 +42,22 @@ fn void Commands.bind_shader(&self, Shader s) @inline
 
 fn void Commands.bind_texture_2d(&self, Binding binding, Texture2D t) @inline
 {
-    gl::bindTextureUnit(binding, (uint)t);
+    gl::bindTextureUnit(binding, texture_gl_id_2d(t));
 }
 
 fn void Commands.bind_texture(&self, Binding binding, Texture3D t) @inline
 {
-    gl::bindTextureUnit(binding, (uint)t);
+    gl::bindTextureUnit(binding, texture_gl_id_3d(t));
 }
 
-fn void Commands.bind_image(&self, Binding binding, Texture3D t, Access access, Format fmt) @inline
+fn void Commands.bind_image(&self, Binding binding, Texture3D t, Access access) @inline
 {
-    gl::bindImageTexture(binding, (uint)t, 0, gl::GL_TRUE, 0, access_to_gl(access), format_to_gl(fmt));
+    gl::bindImageTexture(binding, texture_gl_id_3d(t), 0, gl::GL_TRUE, 0, access_to_gl(access), format_to_gl(texture_format_3d(t)));
 }
 
-fn void Commands.bind_image_2d(&self, Binding binding, Texture2D t, Access access, Format fmt) @inline
+fn void Commands.bind_image_2d(&self, Binding binding, Texture2D t, Access access) @inline
 {
-    gl::bindImageTexture(binding, (uint)t, 0, gl::GL_FALSE, 0, access_to_gl(access), format_to_gl(fmt));
+    gl::bindImageTexture(binding, texture_gl_id_2d(t), 0, gl::GL_FALSE, 0, access_to_gl(access), format_to_gl(texture_format_2d(t)));
 }
 
 fn void Commands.bind_ubo(&self, Binding binding, Buffer b, ByteOffset offset, ByteSize size) @inline

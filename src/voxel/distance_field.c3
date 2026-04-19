@@ -77,8 +77,8 @@ fn void JumpFloodContext.destroy(&self)
 fn void JumpFloodContext.build(&self, gpu::Commands* cmd, Volume* v, DistanceField* df)
 {
     cmd.bind_shader(self.init_shader);
-    cmd.bind_image(0, v.tex, gpu::Access.READ_ONLY, gpu::Format.RGBA8);
-    cmd.bind_image(1, df.tex[0], gpu::Access.WRITE_ONLY, gpu::Format.R8UI);
+    cmd.bind_image(0, v.tex, gpu::Access.READ_ONLY);
+    cmd.bind_image(1, df.tex[0], gpu::Access.WRITE_ONLY);
     cmd.dispatch(DF_PITCH / 4, DF_PITCH / 4, DF_PITCH / 4);
     cmd.barrier(gpu::BarrierType.SHADER_IMAGE_ACCESS);
 
@@ -91,8 +91,8 @@ fn void JumpFloodContext.build(&self, gpu::Commands* cmd, Volume* v, DistanceFie
         gpu::buffer_upload(self.step_ubo, &u, 0, DistanceFieldStepUniforms.sizeof);
 
         cmd.bind_shader(self.step_shader);
-        cmd.bind_image(0, df.tex[read_idx],  gpu::Access.READ_ONLY,  gpu::Format.R8UI);
-        cmd.bind_image(1, df.tex[write_idx], gpu::Access.WRITE_ONLY, gpu::Format.R8UI);
+        cmd.bind_image(0, df.tex[read_idx],  gpu::Access.READ_ONLY);
+        cmd.bind_image(1, df.tex[write_idx], gpu::Access.WRITE_ONLY);
         cmd.bind_ubo(2, self.step_ubo, 0, DistanceFieldStepUniforms.sizeof);
         cmd.dispatch(DF_PITCH / 4, DF_PITCH / 4, DF_PITCH / 4);
         cmd.barrier(gpu::BarrierType.SHADER_IMAGE_ACCESS);

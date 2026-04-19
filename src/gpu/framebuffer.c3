@@ -33,7 +33,7 @@ fn Framebuffer? framebuffer_create(FramebufferDesc desc)
             .levels = 1,
         });
         GLenum attach = (GLenum)((int)gl::GL_COLOR_ATTACHMENT0 + i);
-        gl::namedFramebufferTexture(fb.fbo_id, attach, (uint)fb.colors[i], 0);
+        gl::namedFramebufferTexture(fb.fbo_id, attach, texture_gl_id_2d(fb.colors[i]), 0);
         draw_bufs[i] = attach;
     }
     if (fb.color_count > 0) {
@@ -47,7 +47,7 @@ fn Framebuffer? framebuffer_create(FramebufferDesc desc)
             .fmt    = desc.depth,
             .levels = 1,
         });
-        gl::namedFramebufferTexture(fb.fbo_id, (GLenum)gl::GL_DEPTH_ATTACHMENT, (uint)fb.depth, 0);
+        gl::namedFramebufferTexture(fb.fbo_id, (GLenum)gl::GL_DEPTH_ATTACHMENT, texture_gl_id_2d(fb.depth), 0);
     }
 
     GLenum status = gl::checkNamedFramebufferStatus(fb.fbo_id, (GLenum)gl::GL_FRAMEBUFFER);

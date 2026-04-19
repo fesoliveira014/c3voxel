@@ -51,7 +51,7 @@ fn void GenerateContext.dispatch_page(&self, gpu::Commands* cmd, VolumeRing* rin
     gpu::buffer_upload(self.ubo, &u, 0, GenerateUniforms.sizeof);
 
     cmd.bind_shader(self.shader);
-    cmd.bind_image(0, ring.slot(slot), gpu::Access.WRITE_ONLY, gpu::Format.RGBA8);
+    cmd.bind_image(0, ring.slot(slot), gpu::Access.WRITE_ONLY);
     cmd.bind_texture_2d(1, block_heightmap);
     cmd.bind_ubo(2, self.ubo, 0, GenerateUniforms.sizeof);
     cmd.dispatch(world::VOLUME_PITCH / 4, world::VOLUME_PITCH / 4, world::VOLUME_PITCH / 4);
@@ -70,7 +70,7 @@ fn void GenerateContext.dispatch(&self, gpu::Commands* cmd, Volume* v, core::Sec
     gpu::buffer_upload(self.ubo, &u, 0, GenerateUniforms.sizeof);
 
     cmd.bind_shader(self.shader);
-    cmd.bind_image(0, v.tex, gpu::Access.WRITE_ONLY, gpu::Format.RGBA8);
+    cmd.bind_image(0, v.tex, gpu::Access.WRITE_ONLY);
     cmd.bind_ubo(2, self.ubo, 0, GenerateUniforms.sizeof);
     cmd.dispatch(world::VOLUME_PITCH / 4, world::VOLUME_PITCH / 4, world::VOLUME_PITCH / 4);
     cmd.barrier(gpu::BarrierType.IMAGE_TO_TEXTURE);
