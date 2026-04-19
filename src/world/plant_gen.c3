@@ -5,9 +5,13 @@ import std::math;
 import std::io;
 
 import c3voxel::core;
+import c3voxel::core::noise;
 import c3voxel::voxel;
 
-const int MAX_NODES_PER_TREE = 1024;
+const int   MAX_NODES_PER_TREE = 1024;
+const float WATER_LEVEL_Y      = 16.0f;
+const float MAX_HEIGHT         = 128.0f;
+const float TERRAIN_SEED_F     = 1337.0f;
 
 struct PlantNode {
     core::Vec3 beg_point;
@@ -220,6 +224,17 @@ fn void flatten_tree(PlantNodeList* scratch, PageGeometry* out, voxel::Material 
     }
 }
 
+// Sample terrain height at (wx, wz) via the same fbm2 the GPU generate shader
+// uses. Matches the block heightmap exactly since both read from fbm2 with the
+// same seed and scale. Returns world-y.
+fn float heightmap_sample_at(float wx, float wz) @local
+{
+    float fx = wx * 0.004f;   // TERRAIN_NOISE_SCALE from terrain.c3
+    float fz = wz * 0.004f;
+    float h = noise::fbm2(fx, fz, 4, 0.5f, 2.0f, (uint)TERRAIN_SEED_F);
+    return (h * 0.5f + 0.5f) * MAX_HEIGHT;
+}
+
 fn void plant_grow_tree(
     PageGeometry*    out,
     PlantNodeList*   scratch,
@@ -255,4 +270,38 @@ fn void plant_grow_tree(
     apply_rules(scratch, rules, 0, 0, 0.0f, max_length, tree_seed, &counter);
 
     flatten_tree(scratch, out, rules.branch_material, rules.leaf_material);
+}
+
+fn void plant_generate_page(
+    PageGeometry*  out,
+    Page*          page,
+    uint           world_seed,
+    PlantNodeList* scratch)
+{
+    uint px = (uint)(int)page.px;
+    uint pz = (uint)(int)page.pz;
+    uint base_h = voxel::voronoi_hash(px, pz, world_seed, 0u);
+    int count = 3 + (int)((base_h >> 24) & 0x5u);   // 3..8 directly
+
+    for (int i = 0; i < count; i++) {
+        uint pos_h = voxel::voronoi_hash(px, pz, world_seed, (uint)(i + 1));
+        float fx = (float)(pos_h & 0xFFFFu) / 65535.0f;
+        float fz = (float)((pos_h >> 16) & 0xFFFFu) / 65535.0f;
+        float wx = page.world_min.x + fx * (page.world_max.x - page.world_min.x);
+        float wz = page.world_min.z + fz * (page.world_max.z - page.world_min.z);
+        float wy = heightmap_sample_at(wx, wz);
+        if (wy < WATER_LEVEL_Y) continue;
+
+        uint type_h = voxel::voronoi_hash(px, pz, world_seed, (uint)(i + 100));
+        voxel::PlantType type = (voxel::PlantType)(type_h % (uint)voxel::PLANT_TYPE_COUNT);
+        // Prefer trunk variants 3:1 over roots so surface density matches visual expectation.
+        if (type == voxel::PlantType.OAK_ROOTS
+            || type == voxel::PlantType.OAK2_ROOTS
+            || type == voxel::PlantType.BARE_OAK_ROOTS) {
+            type = (voxel::PlantType)(((type_h >> 8) % 3u) * 2u);
+        }
+
+        uint tree_seed = voxel::voronoi_hash(px, pz, world_seed, (uint)(i + 2000));
+        plant_grow_tree(out, scratch, type, { wx, wy, wz }, tree_seed);
+    }
 }
