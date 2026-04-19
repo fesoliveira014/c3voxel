@@ -13,10 +13,13 @@ const Buffer    BUFFER_INVALID    = (Buffer)0;
 const usz MAX_FBO_ATTACHMENTS = 4;
 
 struct Framebuffer {
-    uint        fbo_id;
-    Texture2D[MAX_FBO_ATTACHMENTS] attachments;
-    int         width;
-    int         height;
+    uint                           fbo_id;
+    Texture2D[MAX_FBO_ATTACHMENTS] colors;
+    int                            color_count;
+    Texture2D                      depth;
+    bool                           has_depth;
+    int                            width;
+    int                            height;
 }
 
 struct Commands {
@@ -75,5 +78,31 @@ fn GLbitfield barrier_to_gl(BarrierType b)
         case BarrierType.FRAMEBUFFER:         return (GLbitfield)gl::GL_FRAMEBUFFER_BARRIER_BIT;
         case BarrierType.STORAGE_BUFFER:      return (GLbitfield)gl::GL_SHADER_STORAGE_BARRIER_BIT;
         case BarrierType.ALL:                 return (GLbitfield)gl::GL_ALL_BARRIER_BITS;
+    }
+}
+
+fn GLenum format_channel(Format f)
+{
+    switch (f) {
+        case Format.RGBA8:
+        case Format.RGBA16F:
+        case Format.RGBA32F:          return (GLenum)gl::GL_RGBA;
+        case Format.R8:
+        case Format.R16F:
+        case Format.R32F:             return (GLenum)gl::GL_RED;
+        case Format.DEPTH24_STENCIL8: return (GLenum)gl::GL_DEPTH_STENCIL;
+    }
+}
+
+fn GLenum format_pixel_type(Format f)
+{
+    switch (f) {
+        case Format.RGBA8:
+        case Format.R8:               return (GLenum)gl::GL_UNSIGNED_BYTE;
+        case Format.RGBA16F:
+        case Format.R16F:             return (GLenum)gl::GL_HALF_FLOAT;
+        case Format.RGBA32F:
+        case Format.R32F:             return (GLenum)gl::GL_FLOAT;
+        case Format.DEPTH24_STENCIL8: return (GLenum)gl::GL_UNSIGNED_INT_24_8;
     }
 }

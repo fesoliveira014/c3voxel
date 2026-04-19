@@ -46,6 +46,28 @@ fn int main(String[] args)
     gpu::Shader shader = loaded;
     defer gpu::shader_destroy(shader);
 
+    const int CHECKER_SIZE = 16;
+    gpu::Texture2D checker = gpu::texture2d_create({
+        .width  = CHECKER_SIZE,
+        .height = CHECKER_SIZE,
+        .fmt    = gpu::Format.RGBA8,
+        .levels = 1,
+    });
+    defer gpu::texture2d_destroy(checker);
+
+    char[CHECKER_SIZE * CHECKER_SIZE * 4] pixels;
+    for (int y = 0; y < CHECKER_SIZE; y++) {
+        for (int x = 0; x < CHECKER_SIZE; x++) {
+            int i = (y * CHECKER_SIZE + x) * 4;
+            bool light = (((x >> 1) ^ (y >> 1)) & 1) != 0;
+            pixels[i + 0] = light ? (char)0xc0 : (char)0x30;
+            pixels[i + 1] = light ? (char)0xc0 : (char)0x30;
+            pixels[i + 2] = light ? (char)0xf0 : (char)0x50;
+            pixels[i + 3] = (char)0xff;
+        }
+    }
+    gpu::texture2d_upload(checker, &pixels, gpu::Format.RGBA8, 0, 0, 0, CHECKER_SIZE, CHECKER_SIZE);
+
     platform::FrameClock clock;
     clock.init();
 
@@ -60,6 +82,7 @@ fn int main(String[] args)
         cmd.set_viewport(0, 0, win.fb_width, win.fb_height);
         cmd.clear(0.05, 0.05, 0.08, 1.0);
         cmd.bind_shader(shader);
+        cmd.bind_texture_2d(0, checker);
         cmd.draw_fullscreen_quad();
         cmd.end_frame();
 
