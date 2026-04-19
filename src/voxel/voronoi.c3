@@ -14,7 +14,7 @@ struct VoronoiParams @packed @align(16) {
 $assert(VoronoiParams.sizeof % 16 == 0);
 
 // xorshift-style 32-bit hash seeded from (page coord, cell index).
-fn uint voronoi_hash(uint x, uint y, uint z, uint cell) @local
+fn uint voronoi_hash(uint x, uint y, uint z, uint cell)
 {
     uint h = x * 0x9E3779B1u;
     h ^= (h >> 16) ^ (y * 0x85EBCA77u);
@@ -25,7 +25,7 @@ fn uint voronoi_hash(uint x, uint y, uint z, uint cell) @local
 }
 
 // [0, 1) float from a uint hash.
-fn float voronoi_frand(uint h) @local
+fn float voronoi_frand(uint h)
 {
     // 24-bit mantissa region, divided by 2^24
     return (float)(h & 0x00FFFFFFu) / (float)(1u << 24);
