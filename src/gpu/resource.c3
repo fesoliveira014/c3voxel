@@ -41,7 +41,7 @@ enum Format : char {
 
 enum BarrierType : char {
     SHADER_IMAGE_ACCESS,
-    FRAMEBUFFER_BARRIER,
+    FRAMEBUFFER,
     STORAGE_BUFFER,
     ALL,
 }
@@ -49,31 +49,31 @@ enum BarrierType : char {
 fn GLenum access_to_gl(Access a)
 {
     switch (a) {
-        case Access.READ_ONLY:  return gl::GL_READ_ONLY;
-        case Access.WRITE_ONLY: return gl::GL_WRITE_ONLY;
-        case Access.READ_WRITE: return gl::GL_READ_WRITE;
+        case Access.READ_ONLY:  return (GLenum)gl::GL_READ_ONLY;
+        case Access.WRITE_ONLY: return (GLenum)gl::GL_WRITE_ONLY;
+        case Access.READ_WRITE: return (GLenum)gl::GL_READ_WRITE;
     }
 }
 
 fn GLenum format_to_gl(Format f)
 {
     switch (f) {
-        case Format.RGBA8:            return gl::GL_RGBA8;
-        case Format.RGBA16F:          return gl::GL_RGBA16F;
-        case Format.RGBA32F:          return gl::GL_RGBA32F;
-        case Format.R8:               return gl::GL_R8;
-        case Format.R16F:             return gl::GL_R16F;
-        case Format.R32F:             return gl::GL_R32F;
-        case Format.DEPTH24_STENCIL8: return gl::GL_DEPTH24_STENCIL8;
+        case Format.RGBA8:            return (GLenum)gl::GL_RGBA8;
+        case Format.RGBA16F:          return (GLenum)gl::GL_RGBA16F;
+        case Format.RGBA32F:          return (GLenum)gl::GL_RGBA32F;
+        case Format.R8:               return (GLenum)gl::GL_R8;
+        case Format.R16F:             return (GLenum)gl::GL_R16F;
+        case Format.R32F:             return (GLenum)gl::GL_R32F;
+        case Format.DEPTH24_STENCIL8: return (GLenum)gl::GL_DEPTH24_STENCIL8;
     }
 }
 
 fn GLbitfield barrier_to_gl(BarrierType b)
 {
     switch (b) {
-        case BarrierType.SHADER_IMAGE_ACCESS: return gl::GL_SHADER_IMAGE_ACCESS_BARRIER_BIT;
-        case BarrierType.FRAMEBUFFER_BARRIER: return gl::GL_FRAMEBUFFER_BARRIER_BIT;
-        case BarrierType.STORAGE_BUFFER:      return gl::GL_SHADER_STORAGE_BARRIER_BIT;
-        case BarrierType.ALL:                 return gl::GL_ALL_BARRIER_BITS;
+        case BarrierType.SHADER_IMAGE_ACCESS: return (GLbitfield)gl::GL_SHADER_IMAGE_ACCESS_BARRIER_BIT;
+        case BarrierType.FRAMEBUFFER:         return (GLbitfield)gl::GL_FRAMEBUFFER_BARRIER_BIT;
+        case BarrierType.STORAGE_BUFFER:      return (GLbitfield)gl::GL_SHADER_STORAGE_BARRIER_BIT;
+        case BarrierType.ALL:                 return (GLbitfield)gl::GL_ALL_BARRIER_BITS;
     }
 }

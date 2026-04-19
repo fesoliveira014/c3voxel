@@ -46,9 +46,9 @@ struct ShaderStage {
 fn GLenum stage_to_gl(ShaderStageKind k) @local
 {
     switch (k) {
-        case ShaderStageKind.VERTEX:   return gl::GL_VERTEX_SHADER;
-        case ShaderStageKind.FRAGMENT: return gl::GL_FRAGMENT_SHADER;
-        case ShaderStageKind.COMPUTE:  return gl::GL_COMPUTE_SHADER;
+        case ShaderStageKind.VERTEX:   return (GLenum)gl::GL_VERTEX_SHADER;
+        case ShaderStageKind.FRAGMENT: return (GLenum)gl::GL_FRAGMENT_SHADER;
+        case ShaderStageKind.COMPUTE:  return (GLenum)gl::GL_COMPUTE_SHADER;
     }
 }
 
@@ -187,7 +187,7 @@ fn void? build_program(ShaderSlot* slot) @private
     gl::linkProgram(program);
 
     int linked;
-    gl::getProgramiv(program, gl::GL_LINK_STATUS, &linked);
+    gl::getProgramiv(program, (GLenum)gl::GL_LINK_STATUS, &linked);
     if (!linked) {
         char[2048] log;
         gl::getProgramInfoLog(program, log.len, null, &log);
@@ -223,7 +223,7 @@ fn uint? compile_stage(ShaderStage* s) @private
     char[] spv = file::load_temp(s.spv_path)!;
 
     uint shader = gl::createShader(stage_to_gl(s.kind));
-    gl::shaderBinary(1, &shader, gl::GL_SHADER_BINARY_FORMAT_SPIR_V, spv.ptr, (int)spv.len);
+    gl::shaderBinary(1, &shader, (GLenum)gl::GL_SHADER_BINARY_FORMAT_SPIR_V, spv.ptr, (int)spv.len);
     if (gl::specializeShader != null) {
         gl::specializeShader(shader, (char*)"main", 0, null, null);
     } else if (gl::specializeShaderARB != null) {
@@ -235,7 +235,7 @@ fn uint? compile_stage(ShaderStage* s) @private
     }
 
     int compiled;
-    gl::getShaderiv(shader, gl::GL_COMPILE_STATUS, &compiled);
+    gl::getShaderiv(shader, (GLenum)gl::GL_COMPILE_STATUS, &compiled);
     if (!compiled) {
         char[2048] log;
         gl::getShaderInfoLog(shader, log.len, null, &log);
@@ -252,7 +252,7 @@ fn void? run_glslc(ShaderStage* s) @private
 {
     String flag_arg = string::tformat("-fshader-stage=%s", stage_flag(s.kind));
     String[6] argv = { "glslc", "--target-env=opengl", flag_arg, s.glsl_path, "-o", s.spv_path };
-    int? code = process::run(argv[..]);
+    int? code = process::run(argv[..], process::SpawnOptions.INHERIT_STDIO);
     if (catch err = code) {
         io::eprintfn("[shader] glslc spawn failed: %s", err);
         return GLSLC_FAILED~;

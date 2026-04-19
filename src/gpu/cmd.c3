@@ -27,12 +27,12 @@ fn void Commands.set_viewport(&self, int x, int y, int w, int h) @inline
 fn void Commands.clear(&self, float r, float g, float b, float a) @inline
 {
     gl::clearColor(r, g, b, a);
-    gl::clear(gl::GL_COLOR_BUFFER_BIT | gl::GL_DEPTH_BUFFER_BIT);
+    gl::clear((GLbitfield)(gl::GL_COLOR_BUFFER_BIT | gl::GL_DEPTH_BUFFER_BIT));
 }
 
 fn void Commands.bind_default_framebuffer(&self) @inline
 {
-    gl::bindFramebuffer(gl::GL_FRAMEBUFFER, 0);
+    gl::bindFramebuffer((GLenum)gl::GL_FRAMEBUFFER, 0);
 }
 
 fn void Commands.bind_shader(&self, Shader s) @inline
@@ -62,21 +62,21 @@ fn void Commands.bind_image_2d(&self, uint binding, Texture2D t, Access access, 
 
 fn void Commands.bind_ubo(&self, uint binding, Buffer b, usz offset, usz size) @inline
 {
-    gl::bindBufferRange(gl::GL_UNIFORM_BUFFER, binding, (uint)b, (isz)offset, (isz)size);
+    gl::bindBufferRange((GLenum)gl::GL_UNIFORM_BUFFER, binding, (uint)b, (isz)offset, (isz)size);
 }
 
 fn void Commands.bind_ssbo(&self, uint binding, Buffer b) @inline
 {
-    gl::bindBufferBase(gl::GL_SHADER_STORAGE_BUFFER, binding, (uint)b);
+    gl::bindBufferBase((GLenum)gl::GL_SHADER_STORAGE_BUFFER, binding, (uint)b);
 }
 
 fn void Commands.bind_framebuffer(&self, Framebuffer* fb) @inline
 {
     if (fb == null) {
-        gl::bindFramebuffer(gl::GL_FRAMEBUFFER, 0);
+        gl::bindFramebuffer((GLenum)gl::GL_FRAMEBUFFER, 0);
         return;
     }
-    gl::bindFramebuffer(gl::GL_FRAMEBUFFER, fb.fbo_id);
+    gl::bindFramebuffer((GLenum)gl::GL_FRAMEBUFFER, fb.fbo_id);
     gl::viewport(0, 0, fb.width, fb.height);
 }
 
@@ -88,7 +88,7 @@ fn void Commands.dispatch(&self, int gx, int gy, int gz) @inline
 fn void Commands.draw_fullscreen_quad(&self) @inline
 {
     gl::bindVertexArray(self.empty_vao);
-    gl::drawArrays(gl::GL_TRIANGLES, 0, 3);
+    gl::drawArrays((GLenum)gl::GL_TRIANGLES, 0, 3);
 }
 
 fn void Commands.barrier(&self, BarrierType type) @inline

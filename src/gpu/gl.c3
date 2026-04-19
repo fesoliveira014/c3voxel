@@ -19,5 +19,5 @@ fn void load_missing(GLLoadFn load) @local
     if (gl::specializeShaderARB == null) gl::specializeShaderARB = (PFNglSpecializeShaderARBPROC)(void*)load((ZString)"glSpecializeShaderARB");
 }
 
-fn ZString renderer_string() @inline => (ZString)gl::getString(gl::GL_RENDERER);
-fn ZString version_string()  @inline => (ZString)gl::getString(gl::GL_VERSION);
+fn ZString renderer_string() @inline => (ZString)gl::getString((GLenum)gl::GL_RENDERER);
+fn ZString version_string()  @inline => (ZString)gl::getString((GLenum)gl::GL_VERSION);
