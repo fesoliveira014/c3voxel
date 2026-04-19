@@ -11,7 +11,9 @@ layout(std140, binding = 2) uniform U {
     vec4  block_origin;
     vec4  block_extent;
     float time;
-    vec3  _pad_time;
+    float _pad_time_0;
+    float _pad_time_1;
+    float _pad_time_2;
     ivec4 entry_counts;   // x = num_geom, y = num_tree, z = num_line
 };
 
