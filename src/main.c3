@@ -1,6 +1,7 @@
 module c3voxel;
 
 import std::io;
+import std::math;
 
 import glfw;
 
@@ -9,9 +10,11 @@ import c3voxel::platform;
 import c3voxel::gpu;
 import c3voxel::voxel;
 import c3voxel::world;
+import c3voxel::game;
 import c3voxel::render;
 
 const ulong RELOAD_CHECK_INTERVAL = 30;
+const float PAN_SENSITIVITY       = 1.5f;
 
 fn int main(String[] args)
 {
@@ -78,70 +81,15 @@ fn int main(String[] args)
     page_pool.init(mem);
     defer { block_pool.destroy(); holder_pool.destroy(); page_pool.destroy(); }
 
-    world::BlockId block_id = block_pool.get_or_create(0, 0);
-    world::Block*  block    = block_pool.get(block_id);
-    world::generate_heightmap_cpu(mem, block, 1337u);
+    world::GpuPool pool;
+    pool.init();
 
-    world::HolderId[4] holder_ids;
-    world::PageId[16]  page_ids;
-    int page_cursor = 0;
+    world::DirtyQueue dirty;
+    dirty.init(mem);
+    defer dirty.free();
 
-    for (world::HolderCoord hz = 0; hz < (world::HolderCoord)world::ACTIVE_HOLDERS_PER_AXIS; hz++) {
-        for (world::HolderCoord hx = 0; hx < (world::HolderCoord)world::ACTIVE_HOLDERS_PER_AXIS; hx++) {
-            world::HolderId? hid_opt = holder_pool.get_or_create(hx, hz, block_id);
-            if (catch err = hid_opt) {
-                io::eprintfn("Failed to create holder: %s", err);
-                return 1;
-            }
-            world::HolderId hid = hid_opt;
-            block_pool.retain(block_id);
-            int hi = (int)hz * world::ACTIVE_HOLDERS_PER_AXIS + (int)hx;
-            holder_ids[hi] = hid;
-            world::Holder* holder = holder_pool.get(hid);
-
-            for (world::PageCoord lz = 0; lz < (world::PageCoord)world::PAGES_PER_HOLDER; lz++) {
-                for (world::PageCoord lx = 0; lx < (world::PageCoord)world::PAGES_PER_HOLDER; lx++) {
-                    world::PageCoord px = (world::PageCoord)((int)hx * world::PAGES_PER_HOLDER + (int)lx);
-                    world::PageCoord pz = (world::PageCoord)((int)hz * world::PAGES_PER_HOLDER + (int)lz);
-                    world::PageId pid = page_pool.get_or_create(px, pz);
-                    world::Page* page = page_pool.get(pid);
-
-                    float x0 = (float)(int)px * (float)world::PIXELS_PER_PAGE;
-                    float z0 = (float)(int)pz * (float)world::PIXELS_PER_PAGE;
-                    page.world_min = { x0, 0.0f, z0, 0.0f };
-                    page.world_max = { x0 + (float)world::PIXELS_PER_PAGE, (float)world::VOLUME_PITCH, z0 + (float)world::PIXELS_PER_PAGE, 0.0f };
-
-                    int ph_slot = (int)lz * world::PAGES_PER_HOLDER + (int)lx;
-                    holder.pages[ph_slot] = pid;
-                    page_ids[page_cursor++] = pid;
-                }
-            }
-        }
-    }
-
-    float block_extent = (float)world::BLOCK_HEIGHTMAP_PIXELS;
-    core::Vec4 block_origin = { 0.0f, 0.0f, 0.0f, 0.0f };
-    core::Vec4 block_extent_v = { block_extent, (float)world::VOLUME_PITCH, block_extent, 0.0f };
-
-    for (int hi = 0; hi < 4; hi++) {
-        world::Holder* holder = holder_pool.get(holder_ids[hi]);
-        for (int lz = 0; lz < world::PAGES_PER_HOLDER; lz++) {
-            for (int lx = 0; lx < world::PAGES_PER_HOLDER; lx++) {
-                int ph_slot = lz * world::PAGES_PER_HOLDER + lx;
-                world::PageId pid = holder.pages[ph_slot];
-                world::Page* page = page_pool.get(pid);
-
-                int slot = ring.next();
-                gen.dispatch_page(&cmd, &ring, slot, page, block.heightmap, block_origin, block_extent_v, (core::Seconds)0.0f);
-
-                voxel::Volume tmp_vol = { .tex = ring.slot(slot) };
-                jfa.build(&cmd, &tmp_vol, &df);
-
-                core::IVec2 write_offset = { lx * world::PIXELS_PER_PAGE, lz * world::PIXELS_PER_PAGE };
-                rm.dispatch_into(&cmd, &ring, slot, &df, page, &holder.fbo_layer0, write_offset);
-            }
-        }
-    }
+    core::Vec3 pan_target = { 0.0f, 0.0f, 0.0f };
+    float      zoom_scale = 1.0f;
 
     platform::FrameClock clock;
     clock.init();
@@ -149,7 +97,26 @@ fn int main(String[] args)
     while (!win.should_close()) {
         clock.tick();
 
+        platform::MouseState mouse;
+        platform::input_poll(&mouse, &win);
+
         if (win.key_down(glfw::KEY_ESCAPE)) win.request_close();
+
+        if (mouse.left_down) {
+            pan_target.x -= (float)mouse.dx * PAN_SENSITIVITY / zoom_scale;
+            pan_target.z -= (float)mouse.dy * PAN_SENSITIVITY / zoom_scale;
+        }
+
+        if (mouse.scroll_steps != 0) {
+            if (mouse.scroll_steps > 0) {
+                if (zoom_scale < 1.75f) zoom_scale *= 2.0f;
+            } else {
+                if (zoom_scale > 0.75f) zoom_scale *= 0.5f;
+            }
+            if (zoom_scale < 0.5f) zoom_scale = 0.5f;
+            if (zoom_scale > 2.0f) zoom_scale = 2.0f;
+        }
+
         if (clock.frame % RELOAD_CHECK_INTERVAL == 0) {
             gpu::shader_reload_if_changed(composite.shader);
             gpu::shader_reload_if_changed(gen.shader);
@@ -159,41 +126,147 @@ fn int main(String[] args)
         }
 
         if (clock.frame > 0 && clock.frame % 60 == 0) {
-            io::printfn("frame %d  dt=%.2f ms", clock.frame, clock.dt * 1000.0);
+            io::printfn("frame %d  dt=%.2f ms  pool alive=%d dirty=%d pan=(%.1f, %.1f) zoom=%.2f",
+                        clock.frame, clock.dt * 1000.0,
+                        alive_slot_count(&pool), (int)dirty.len(),
+                        pan_target.x, pan_target.z, zoom_scale);
         }
 
-        world::Holder*[4] holders = {
-            holder_pool.get(holder_ids[0]),
-            holder_pool.get(holder_ids[1]),
-            holder_pool.get(holder_ids[2]),
-            holder_pool.get(holder_ids[3]),
-        };
+        world::streaming_update(&pool, &block_pool, &holder_pool, &page_pool, &dirty,
+                                pan_target, zoom_scale, win.fb_width, win.fb_height);
 
-        float half_w = (float)win.fb_width * 0.5f;
-        float half_h = (float)win.fb_height * 0.5f;
-        core::Vec4[4] screen_min = {
-            { 0.0f,   0.0f,   0.0f, 0.0f },
-            { half_w, 0.0f,   0.0f, 0.0f },
-            { 0.0f,   half_h, 0.0f, 0.0f },
-            { half_w, half_h, 0.0f, 0.0f },
-        };
-        core::Vec4[4] screen_max = {
-            { half_w,             half_h,             0.0f, 0.0f },
-            { (float)win.fb_width, half_h,             0.0f, 0.0f },
-            { half_w,             (float)win.fb_height, 0.0f, 0.0f },
-            { (float)win.fb_width, (float)win.fb_height, 0.0f, 0.0f },
-        };
+        drain_dirty(&cmd, &gen, &jfa, &rm, &ring, &df,
+                    &block_pool, &holder_pool, &page_pool, &pool, &dirty,
+                    pan_target, world::MAX_REGEN_PER_FRAME);
 
         cmd.begin_frame();
         cmd.bind_default_framebuffer();
         cmd.set_viewport(0, 0, win.fb_width, win.fb_height);
-        cmd.clear(0.02, 0.02, 0.04, 1.0);
-        composite.dispatch(&cmd, holders[..], screen_min[..], screen_max[..], win.fb_width, win.fb_height);
-        cmd.end_frame();
+        cmd.clear(0.02f, 0.02f, 0.04f, 1.0f);
 
+        core::Vec4[world::POOL_SIZE] screen_min;
+        core::Vec4[world::POOL_SIZE] screen_max;
+        uint alive_mask = 0;
+        for (int i = 0; i < world::POOL_SIZE; i++) {
+            if ((uint)pool.slots[i].owner == core::HANDLE_INVALID_VALUE) {
+                screen_min[i] = { 0.0f, 0.0f, 0.0f, 0.0f };
+                screen_max[i] = { 0.0f, 0.0f, 0.0f, 0.0f };
+                continue;
+            }
+            world::Holder* h = holder_pool.get(pool.slots[i].owner);
+            if (h == null) continue;
+            compute_holder_screen_rect(h, pan_target, zoom_scale,
+                                       win.fb_width, win.fb_height,
+                                       &screen_min[i], &screen_max[i]);
+            alive_mask |= ((uint)1 << i);
+        }
+
+        composite.dispatch(&cmd, &pool, &holder_pool,
+                           screen_min[..], screen_max[..], alive_mask,
+                           win.fb_width, win.fb_height);
+
+        cmd.end_frame();
         win.poll();
         win.swap();
     }
 
     return 0;
+}
+
+fn int alive_slot_count(world::GpuPool* pool)
+{
+    int n = 0;
+    for (int i = 0; i < world::POOL_SIZE; i++) {
+        if ((uint)pool.slots[i].owner != core::HANDLE_INVALID_VALUE) n++;
+    }
+    return n;
+}
+
+fn void compute_holder_screen_rect(world::Holder* h, core::Vec3 pan_target, float zoom,
+                                   int fb_w, int fb_h,
+                                   core::Vec4* out_min, core::Vec4* out_max)
+{
+    float wx0 = (float)(int)h.hx * (float)world::HOLDER_WORLD_EXTENT;
+    float wz0 = (float)(int)h.hz * (float)world::HOLDER_WORLD_EXTENT;
+    float wx1 = wx0 + (float)world::HOLDER_WORLD_EXTENT;
+    float wz1 = wz0 + (float)world::HOLDER_WORLD_EXTENT;
+    float wy0 = 0.0f;
+    float wy1 = (float)world::VOLUME_PITCH;
+
+    core::Vec3[8] corners = {
+        game::world_xz_to_screen(pan_target, zoom, wx0, wy0, wz0),
+        game::world_xz_to_screen(pan_target, zoom, wx1, wy0, wz0),
+        game::world_xz_to_screen(pan_target, zoom, wx0, wy0, wz1),
+        game::world_xz_to_screen(pan_target, zoom, wx1, wy0, wz1),
+        game::world_xz_to_screen(pan_target, zoom, wx0, wy1, wz0),
+        game::world_xz_to_screen(pan_target, zoom, wx1, wy1, wz0),
+        game::world_xz_to_screen(pan_target, zoom, wx0, wy1, wz1),
+        game::world_xz_to_screen(pan_target, zoom, wx1, wy1, wz1),
+    };
+
+    float min_x = corners[0].x;
+    float max_x = corners[0].x;
+    float min_y = corners[0].y;
+    float max_y = corners[0].y;
+    for (int i = 1; i < 8; i++) {
+        if (corners[i].x < min_x) min_x = corners[i].x;
+        if (corners[i].x > max_x) max_x = corners[i].x;
+        if (corners[i].y < min_y) min_y = corners[i].y;
+        if (corners[i].y > max_y) max_y = corners[i].y;
+    }
+
+    float half_w = (float)fb_w * 0.5f;
+    float half_h = (float)fb_h * 0.5f;
+    *out_min = { min_x + half_w, min_y + half_h, 0.0f, 0.0f };
+    *out_max = { max_x + half_w, max_y + half_h, 0.0f, 0.0f };
+}
+
+fn void drain_dirty(
+    gpu::Commands*           cmd,
+    voxel::GenerateContext*  gen,
+    voxel::JumpFloodContext* jfa,
+    voxel::RayMarchContext*  rm,
+    voxel::VolumeRing*       ring,
+    voxel::DistanceField*    df,
+    world::BlockPool*        blocks,
+    world::HolderPool*       holders,
+    world::PagePool*         pages,
+    world::GpuPool*          pool,
+    world::DirtyQueue*       dirty,
+    core::Vec3               pan_target,
+    int                      budget)
+{
+    int done = 0;
+    while (done < budget && dirty.len() > 0) {
+        world::DirtyEntry entry = dirty.first()!!;
+        dirty.remove_at(0);
+        world::Holder* holder = holders.get(entry.id);
+        if (holder == null) continue;
+        world::Block* block = blocks.get(holder.block_id);
+        if (block == null) continue;
+
+        if (block.heightmap_dirty) {
+            world::generate_heightmap_cpu(mem, block, 1337u + (uint)((int)block.cx * 131 + (int)block.cz));
+        }
+
+        float block_origin_x = (float)(int)block.cx * (float)world::BLOCK_HEIGHTMAP_PIXELS;
+        float block_origin_z = (float)(int)block.cz * (float)world::BLOCK_HEIGHTMAP_PIXELS;
+        core::Vec4 block_origin = { block_origin_x, 0.0f, block_origin_z, 0.0f };
+        core::Vec4 block_extent = { (float)world::BLOCK_HEIGHTMAP_PIXELS, (float)world::VOLUME_PITCH, (float)world::BLOCK_HEIGHTMAP_PIXELS, 0.0f };
+
+        for (int lz = 0; lz < world::PAGES_PER_HOLDER; lz++) {
+            for (int lx = 0; lx < world::PAGES_PER_HOLDER; lx++) {
+                int ph = lz * world::PAGES_PER_HOLDER + lx;
+                world::Page* page = pages.get(holder.pages[ph]);
+                if (page == null) continue;
+                int slot = ring.next();
+                gen.dispatch_page(cmd, ring, slot, page, block.heightmap, block_origin, block_extent, (core::Seconds)0.0f);
+                voxel::Volume tmp_vol = { .tex = ring.slot(slot) };
+                jfa.build(cmd, &tmp_vol, df);
+                core::IVec2 write_offset = { lx * world::PIXELS_PER_PAGE, lz * world::PIXELS_PER_PAGE };
+                rm.dispatch_into(cmd, ring, slot, df, page, &holder.fbo_layer0, write_offset);
+            }
+        }
+        done++;
+    }
 }

@@ -4,11 +4,11 @@ out gl_PerVertex { vec4 gl_Position; };
 
 layout(location = 0) out vec2 v_pixel;
 
-layout(std140, binding = 8) uniform U {
-    vec4  screen_min[4];
-    vec4  screen_max[4];
+layout(std140, binding = 32) uniform U {
+    vec4  screen_min[16];
+    vec4  screen_max[16];
     ivec4 screen_size;
-    ivec4 active_count;
+    ivec4 alive_bits;
 };
 
 void main()
