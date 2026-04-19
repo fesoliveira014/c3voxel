@@ -32,10 +32,14 @@ Third-party C3 libraries go in `lib/` (already on `dependency-search-paths`); li
 
 The following overrule `c3-expert`:
 
-- Variable names use `snake_case`
-- Function/method names use `camelCame`
-- Struct/Enum names use `PascalCase`
-- Constants/enum values use `SCREAMING_SNAKE_CASE`
+- Variable/field names use `snake_case`
+- Function/method names use `snake_case`
+- Struct/Enum/typedef names use `PascalCase`
+- Constants and enum values use `SCREAMING_SNAKE_CASE`
+
+This matches the C3 standard library and the `c3-expert` skill's defaults;
+the earlier draft said `camelCase` (with a typo) but the codebase and the
+ecosystem are `snake_case` throughout.
 
 ## Layout
 

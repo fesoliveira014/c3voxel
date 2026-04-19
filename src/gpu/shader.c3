@@ -8,6 +8,8 @@ import std::time;
 
 import opengl::gl;
 
+import c3voxel::core;
+
 faultdef
     SHADER_FILE_MISSING,
     SHADER_COMPILE_FAILED,
@@ -17,7 +19,7 @@ faultdef
     GLSLC_FAILED;
 
 typedef Shader = inline uint;
-const Shader SHADER_INVALID = (Shader)0;
+const Shader SHADER_INVALID = (Shader)core::HANDLE_INVALID_VALUE;
 
 const usz MAX_SHADERS = 64;
 const usz MAX_SHADER_STAGES = 8;
@@ -61,6 +63,7 @@ fn String stage_flag(ShaderStageKind k) @local
 
 struct ShaderSlot {
     uint          program;
+    char          generation;
     ShaderStage[] stages;
     Allocator     allocator;
 }
@@ -97,7 +100,7 @@ fn Shader? shader_load(Allocator allocator, ShaderStageSpec[] specs)
         return err~;
     }
 
-    return (Shader)((uint)slot_idx + 1);
+    return (Shader)core::handle_pack((uint)slot_idx, (uint)slot.generation);
 }
 
 fn void shader_destroy(Shader s)
@@ -109,6 +112,7 @@ fn void shader_destroy(Shader s)
         slot.program = 0;
     }
     slot_release(slot);
+    slot.generation++;
 }
 
 fn uint shader_program(Shader s) @inline
@@ -146,9 +150,15 @@ fn bool shader_reload_if_changed(Shader s)
 
 fn ShaderSlot* slot_of(Shader s) @local
 {
-    uint idx = (uint)s;
-    if (idx == 0 || idx > MAX_SHADERS) return null;
-    return &shader_slots[idx - 1];
+    uint h = (uint)s;
+    if (h == core::HANDLE_INVALID_VALUE) return null;
+    uint idx = core::handle_index(h);
+    uint gen = core::handle_gen(h);
+    if (idx >= MAX_SHADERS) return null;
+    ShaderSlot* slot = &shader_slots[idx];
+    if (slot.program == 0) return null;
+    if ((uint)slot.generation != gen) return null;
+    return slot;
 }
 
 fn void slot_release(ShaderSlot* slot) @local
