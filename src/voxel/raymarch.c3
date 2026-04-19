@@ -63,7 +63,7 @@ fn void RayMarchContext.resize(&self, int w, int h)
     self.target_h = h;
 }
 
-fn void RayMarchContext.dispatch(&self, gpu::Commands* cmd, Volume* v, float[4] camera_pos)
+fn void RayMarchContext.dispatch(&self, gpu::Commands* cmd, Volume* v, DistanceField* df, float[4] camera_pos)
 {
     RayMarchUniforms u = {
         .camera_pos = camera_pos,
@@ -76,8 +76,9 @@ fn void RayMarchContext.dispatch(&self, gpu::Commands* cmd, Volume* v, float[4] 
 
     cmd.bind_shader(self.shader);
     cmd.bind_texture(0, v.tex);
-    cmd.bind_image_2d(1, self.target, gpu::Access.WRITE_ONLY, gpu::Format.RGBA8);
-    cmd.bind_ubo(2, self.ubo, 0, RayMarchUniforms.sizeof);
+    cmd.bind_texture(1, df.tex);
+    cmd.bind_image_2d(2, self.target, gpu::Access.WRITE_ONLY, gpu::Format.RGBA8);
+    cmd.bind_ubo(3, self.ubo, 0, RayMarchUniforms.sizeof);
 
     int gx = (self.target_w + 7) / 8;
     int gy = (self.target_h + 7) / 8;

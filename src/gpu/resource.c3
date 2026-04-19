@@ -37,6 +37,7 @@ enum Format : char {
     RGBA16F,
     RGBA32F,
     R8,
+    R8UI,
     R16F,
     R32F,
     DEPTH24_STENCIL8,
@@ -66,6 +67,7 @@ fn GLenum format_to_gl(Format f)
         case Format.RGBA16F:          return (GLenum)gl::GL_RGBA16F;
         case Format.RGBA32F:          return (GLenum)gl::GL_RGBA32F;
         case Format.R8:               return (GLenum)gl::GL_R8;
+        case Format.R8UI:             return (GLenum)gl::GL_R8UI;
         case Format.R16F:             return (GLenum)gl::GL_R16F;
         case Format.R32F:             return (GLenum)gl::GL_R32F;
         case Format.DEPTH24_STENCIL8: return (GLenum)gl::GL_DEPTH24_STENCIL8;
@@ -92,6 +94,7 @@ fn GLenum format_channel(Format f)
         case Format.R8:
         case Format.R16F:
         case Format.R32F:             return (GLenum)gl::GL_RED;
+        case Format.R8UI:             return (GLenum)gl::GL_RED_INTEGER;
         case Format.DEPTH24_STENCIL8: return (GLenum)gl::GL_DEPTH_STENCIL;
     }
 }
@@ -100,7 +103,8 @@ fn GLenum format_pixel_type(Format f)
 {
     switch (f) {
         case Format.RGBA8:
-        case Format.R8:               return (GLenum)gl::GL_UNSIGNED_BYTE;
+        case Format.R8:
+        case Format.R8UI:             return (GLenum)gl::GL_UNSIGNED_BYTE;
         case Format.RGBA16F:
         case Format.R16F:             return (GLenum)gl::GL_HALF_FLOAT;
         case Format.RGBA32F:

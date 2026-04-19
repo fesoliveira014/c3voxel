@@ -51,13 +51,14 @@ fn void texture2d_destroy(Texture2D t)
 fn Texture3D texture3d_create(Texture3DDesc desc)
 {
     int levels = desc.levels < 1 ? 1 : desc.levels;
+    int filter = (desc.fmt == Format.R8UI) ? (int)gl::GL_NEAREST : (int)gl::GL_LINEAR;
 
     uint id;
     gl::createTextures((GLenum)gl::GL_TEXTURE_3D, 1, &id);
     gl::textureStorage3D(id, levels, format_to_gl(desc.fmt), desc.width, desc.height, desc.depth);
 
-    gl::textureParameteri(id, (GLenum)gl::GL_TEXTURE_MIN_FILTER, (int)gl::GL_LINEAR);
-    gl::textureParameteri(id, (GLenum)gl::GL_TEXTURE_MAG_FILTER, (int)gl::GL_LINEAR);
+    gl::textureParameteri(id, (GLenum)gl::GL_TEXTURE_MIN_FILTER, filter);
+    gl::textureParameteri(id, (GLenum)gl::GL_TEXTURE_MAG_FILTER, filter);
     gl::textureParameteri(id, (GLenum)gl::GL_TEXTURE_WRAP_S,     (int)gl::GL_CLAMP_TO_EDGE);
     gl::textureParameteri(id, (GLenum)gl::GL_TEXTURE_WRAP_T,     (int)gl::GL_CLAMP_TO_EDGE);
     gl::textureParameteri(id, (GLenum)gl::GL_TEXTURE_WRAP_R,     (int)gl::GL_CLAMP_TO_EDGE);

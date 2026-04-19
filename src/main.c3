@@ -54,6 +54,13 @@ fn int main(String[] args)
     }
     defer gen.destroy();
 
+    voxel::JumpFloodContext jfa;
+    if (catch err = jfa.init(mem)) {
+        io::eprintfn("Failed to load JFA shaders: %s", err);
+        return 1;
+    }
+    defer jfa.destroy();
+
     voxel::RayMarchContext rm;
     if (catch err = rm.init(mem, win.fb_width, win.fb_height)) {
         io::eprintfn("Failed to load raymarch shader: %s", err);
@@ -65,10 +72,15 @@ fn int main(String[] args)
     volume.init();
     defer volume.destroy();
 
+    voxel::DistanceField df;
+    df.init();
+    defer df.destroy();
+
     platform::FrameClock clock;
     clock.init();
 
     gen.dispatch(&cmd, &volume, 0.0);
+    jfa.build(&cmd, &volume, &df);
 
     while (!win.should_close()) {
         clock.tick();
@@ -76,9 +88,11 @@ fn int main(String[] args)
         if (win.key_down(glfw::KEY_ESCAPE)) win.request_close();
         if (clock.frame % RELOAD_CHECK_INTERVAL == 0) {
             gpu::shader_reload_if_changed(fullscreen);
-            if (gpu::shader_reload_if_changed(gen.shader)) {
-                gen.dispatch(&cmd, &volume, (float)clock.time);
-            }
+            bool gen_changed = gpu::shader_reload_if_changed(gen.shader);
+            bool jfa_changed = gpu::shader_reload_if_changed(jfa.init_shader)
+                             | gpu::shader_reload_if_changed(jfa.step_shader);
+            if (gen_changed) gen.dispatch(&cmd, &volume, (float)clock.time);
+            if (gen_changed || jfa_changed) jfa.build(&cmd, &volume, &df);
             gpu::shader_reload_if_changed(rm.shader);
         }
 
@@ -91,7 +105,7 @@ fn int main(String[] args)
         float[4] cam_pos = { radius * cx, 1.3, radius * sx, 0.0 };
 
         cmd.begin_frame();
-        rm.dispatch(&cmd, &volume, cam_pos);
+        rm.dispatch(&cmd, &volume, &df, cam_pos);
 
         cmd.bind_default_framebuffer();
         cmd.set_viewport(0, 0, win.fb_width, win.fb_height);

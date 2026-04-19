@@ -2,10 +2,11 @@
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
-layout(binding = 0) uniform sampler3D volume;
-layout(binding = 1, rgba8) uniform restrict writeonly image2D target;
+layout(binding = 0)         uniform sampler3D  volume;
+layout(binding = 1)         uniform usampler3D dist_field;
+layout(binding = 2, rgba8)  uniform restrict writeonly image2D target;
 
-layout(std140, binding = 2) uniform U {
+layout(std140, binding = 3) uniform U {
     vec4  camera_pos;
     vec4  world_min;
     vec4  world_max;
@@ -13,7 +14,10 @@ layout(std140, binding = 2) uniform U {
     float fov_scale;
 };
 
-const int MAX_STEPS = 192;
+const int VOLUME_PITCH = 128;
+const int DF_PITCH     = 32;
+const int CELL_VOXELS  = 4;
+const int MAX_STEPS    = 256;
 
 vec2 aabb_intersect(vec3 ro, vec3 rd, vec3 bmin, vec3 bmax)
 {
@@ -35,32 +39,41 @@ void main()
     vec2 ndc = (vec2(pix) + 0.5) / vec2(resolution.xy) * 2.0 - 1.0;
     float aspect = float(resolution.x) / float(resolution.y);
 
-    vec3 ro      = camera_pos.xyz;
-    vec3 forward = normalize(-camera_pos.xyz);
+    vec3 ro       = camera_pos.xyz;
+    vec3 forward  = normalize(-camera_pos.xyz);
     vec3 world_up = abs(forward.y) > 0.99 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
-    vec3 right   = normalize(cross(forward, world_up));
-    vec3 up      = cross(right, forward);
-    vec3 rd      = normalize(forward
-                           + ndc.x * aspect * fov_scale * right
-                           + ndc.y * fov_scale * up);
+    vec3 right    = normalize(cross(forward, world_up));
+    vec3 up       = cross(right, forward);
+    vec3 rd       = normalize(forward
+                            + ndc.x * aspect * fov_scale * right
+                            + ndc.y * fov_scale * up);
 
-    vec4 result = vec4(0.03, 0.03, 0.05, 1.0);
+    vec4  result    = vec4(0.03, 0.03, 0.05, 1.0);
+    vec3  size      = world_max.xyz - world_min.xyz;
+    float voxel_len = size.x / float(VOLUME_PITCH);
 
     vec2 t = aabb_intersect(ro, rd, world_min.xyz, world_max.xyz);
-    if (t.y > max(t.x, 0.0)) {
-        float t_start = max(t.x, 0.0);
-        float t_end   = t.y;
-        float step    = (t_end - t_start) / float(MAX_STEPS);
+    if (t.y <= max(t.x, 0.0)) { imageStore(target, pix, result); return; }
 
-        for (int i = 0; i < MAX_STEPS; i++) {
-            float ti = t_start + (float(i) + 0.5) * step;
-            vec3 p   = ro + ti * rd;
-            vec3 uvw = (p - world_min.xyz) / (world_max.xyz - world_min.xyz);
-            vec4 v   = texture(volume, uvw);
+    float t_cur = max(t.x, 0.0);
+    float t_end = t.y;
+
+    for (int i = 0; i < MAX_STEPS; i++) {
+        if (t_cur >= t_end) break;
+
+        vec3 p   = ro + t_cur * rd;
+        vec3 uvw = (p - world_min.xyz) / size;
+
+        uint d_cells = texelFetch(dist_field, ivec3(uvw * float(DF_PITCH)), 0).r;
+        if (d_cells == 0u) {
+            vec4 v = texture(volume, uvw);
             if (v.a > 0.5) {
                 result = vec4(v.rgb, 1.0);
                 break;
             }
+            t_cur += voxel_len;
+        } else {
+            t_cur += float(d_cells) * float(CELL_VOXELS) * voxel_len;
         }
     }
 
