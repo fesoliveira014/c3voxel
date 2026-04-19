@@ -36,7 +36,7 @@ fn void CompositeContext.destroy(&self)
     self.ubo    = gpu::BUFFER_INVALID;
 }
 
-fn void CompositeContext.dispatch(&self, gpu::Commands* cmd, world::GpuPool* pool, world::HolderPool* holders, core::Vec4[] screen_mins, core::Vec4[] screen_maxs, uint alive_mask, world::Pixel fb_width, world::Pixel fb_height)
+fn void CompositeContext.dispatch(&self, gpu::Commands* cmd, world::GpuPool* pool, world::HolderPool* holders, core::Vec4[] screen_mins, core::Vec4[] screen_maxs, uint alive_mask, gpu::Pixel fb_width, gpu::Pixel fb_height)
 {
     CompositeUniforms u;
     for (int i = 0; i < MAX_COMPOSITE_HOLDERS; i++) {

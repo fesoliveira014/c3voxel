@@ -34,11 +34,11 @@ struct RayMarchContext {
     gpu::Buffer    ubo;
     gpu::Texture2D target;
     gpu::Texture2D height_target;
-    world::Pixel   target_w;
-    world::Pixel   target_h;
+    gpu::Pixel   target_w;
+    gpu::Pixel   target_h;
 }
 
-fn void? RayMarchContext.init(&self, Allocator allocator, world::Pixel w, world::Pixel h)
+fn void? RayMarchContext.init(&self, Allocator allocator, gpu::Pixel w, gpu::Pixel h)
 {
     gpu::ShaderStageSpec[1] specs = {
         { gpu::ShaderStageKind.COMPUTE, "resources/shaders/raymarch.comp.glsl" },
@@ -65,7 +65,7 @@ fn void RayMarchContext.destroy(&self)
     self.target_h      = 0;
 }
 
-fn void RayMarchContext.resize(&self, world::Pixel w, world::Pixel h)
+fn void RayMarchContext.resize(&self, gpu::Pixel w, gpu::Pixel h)
 {
     if (w <= 0 || h <= 0) return;
     if (w == self.target_w && h == self.target_h) return;
@@ -97,7 +97,7 @@ fn void RayMarchContext.dispatch_into(&self, gpu::Commands* cmd, VolumeRing* rin
     self.dispatch_raw(cmd, ring.slot(slot), df, v, page.world_min, page.world_max, holder_fbo.colors[0], holder_fbo.colors[1], holder_fbo.width, holder_fbo.height, write_offset, { world::PIXELS_PER_PAGE, world::PIXELS_PER_PAGE });
 }
 
-fn void RayMarchContext.dispatch_raw(&self, gpu::Commands* cmd, gpu::Texture3D volume, DistanceField* df, View view, core::Vec4 world_min, core::Vec4 world_max, gpu::Texture2D color_out, gpu::Texture2D height_out, world::Pixel out_w, world::Pixel out_h, core::IVec2 write_offset, core::IVec2 page_pixels)
+fn void RayMarchContext.dispatch_raw(&self, gpu::Commands* cmd, gpu::Texture3D volume, DistanceField* df, View view, core::Vec4 world_min, core::Vec4 world_max, gpu::Texture2D color_out, gpu::Texture2D height_out, gpu::Pixel out_w, gpu::Pixel out_h, core::IVec2 write_offset, core::IVec2 page_pixels)
 {
     RayMarchUniforms u = {
         .camera_pos     = view.position,

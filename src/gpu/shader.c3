@@ -117,7 +117,7 @@ fn void shader_destroy(Shader s)
     slot.generation++;
 }
 
-fn uint shader_program(Shader s) @inline
+fn uint shader_program(Shader s) @inline @private
 {
     ShaderSlot* slot = slot_of(s);
     return slot == null ? 0 : slot.program;

@@ -9,9 +9,13 @@ alias IVec2 = int[<2>];
 alias IVec3 = int[<3>];
 alias IVec4 = int[<4>];
 
-typedef Seconds = inline float;
-typedef Radians = inline float;
-typedef Degrees = inline float;
+// Screen / framebuffer / texture pixel count. Non-distinct — arithmetic
+// with plain int is common enough that an alias is the right tool.
+alias Pixel = int;
+
+typedef Seconds @constinit = inline float;
+typedef Radians @constinit = inline float;
+typedef Degrees @constinit = inline float;
 
 const float DEG_TO_RAD = (float)math::PI / 180.0;
 const float RAD_TO_DEG = 180.0 / (float)math::PI;

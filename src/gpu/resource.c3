@@ -2,9 +2,9 @@ module c3voxel::gpu;
 
 import opengl::gl;
 
-import c3voxel::world;
+import c3voxel::core;
 
-alias Pixel = world::Pixel;
+alias Pixel = core::Pixel;
 
 typedef Texture2D = inline uint;
 typedef Texture3D = inline uint;
