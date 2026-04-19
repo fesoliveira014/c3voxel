@@ -296,6 +296,7 @@ fn void drain_dirty(
                 int ph = lz * world::PAGES_PER_HOLDER + lx;
                 world::Page* page = pages.get(holder.pages[ph]);
                 if (page == null) continue;
+                world::geometry_generate_smoke_test(&page.geometry, page);
                 int slot = ring.next();
                 gen.dispatch_page(cmd, ring, slot, page, block.heightmap, block_origin, block_extent, (core::Seconds)0.0f);
                 page_vols[ph]  = ring.slot(slot);
