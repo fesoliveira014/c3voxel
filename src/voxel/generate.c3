@@ -5,10 +5,12 @@ import c3voxel::gpu;
 import c3voxel::world;
 
 struct GenerateUniforms @packed @align(16) {
-    core::Vec4 world_min;
-    core::Vec4 world_max;
+    core::Vec4    world_min;
+    core::Vec4    world_max;
+    core::Vec4    block_origin;
+    core::Vec4    block_extent;
     core::Seconds time;
-    float[3]  _pad;
+    float[3]      _pad;
 }
 
 struct GenerateContext {
@@ -33,18 +35,39 @@ fn void GenerateContext.destroy(&self)
     self.ubo    = gpu::BUFFER_INVALID;
 }
 
+fn void GenerateContext.dispatch_page(&self, gpu::Commands* cmd, VolumeRing* ring, int slot, world::Page* page, gpu::Texture2D block_heightmap, core::Vec4 block_origin, core::Vec4 block_extent, core::Seconds time)
+{
+    GenerateUniforms u = {
+        .world_min    = page.world_min,
+        .world_max    = page.world_max,
+        .block_origin = block_origin,
+        .block_extent = block_extent,
+        .time         = time,
+    };
+    gpu::buffer_upload(self.ubo, &u, 0, GenerateUniforms.sizeof);
+
+    cmd.bind_shader(self.shader);
+    cmd.bind_image(0, ring.slot(slot), gpu::Access.WRITE_ONLY, gpu::Format.RGBA8);
+    cmd.bind_texture_2d(1, block_heightmap);
+    cmd.bind_ubo(2, self.ubo, 0, GenerateUniforms.sizeof);
+    cmd.dispatch(world::VOLUME_PITCH / 4, world::VOLUME_PITCH / 4, world::VOLUME_PITCH / 4);
+    cmd.barrier(gpu::BarrierType.IMAGE_TO_TEXTURE);
+}
+
 fn void GenerateContext.dispatch(&self, gpu::Commands* cmd, Volume* v, core::Seconds time)
 {
     GenerateUniforms u = {
-        .world_min = { -1.0, -1.0, -1.0, 0.0 },
-        .world_max = {  1.0,  1.0,  1.0, 0.0 },
-        .time      = time,
+        .world_min    = { -1.0, -1.0, -1.0, 0.0 },
+        .world_max    = {  1.0,  1.0,  1.0, 0.0 },
+        .block_origin = { -1.0, -1.0, -1.0, 0.0 },
+        .block_extent = {  2.0,  2.0,  2.0, 0.0 },
+        .time         = time,
     };
     gpu::buffer_upload(self.ubo, &u, 0, GenerateUniforms.sizeof);
 
     cmd.bind_shader(self.shader);
     cmd.bind_image(0, v.tex, gpu::Access.WRITE_ONLY, gpu::Format.RGBA8);
-    cmd.bind_ubo(1, self.ubo, 0, GenerateUniforms.sizeof);
+    cmd.bind_ubo(2, self.ubo, 0, GenerateUniforms.sizeof);
     cmd.dispatch(world::VOLUME_PITCH / 4, world::VOLUME_PITCH / 4, world::VOLUME_PITCH / 4);
     cmd.barrier(gpu::BarrierType.IMAGE_TO_TEXTURE);
 }
