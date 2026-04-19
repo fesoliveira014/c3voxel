@@ -32,6 +32,8 @@ Third-party C3 libraries go in `lib/` (already on `dependency-search-paths`); li
 
 The following overrule `c3-expert`:
 
+#### Naming
+
 - Variable/field names use `snake_case`
 - Function/method names use `snake_case`
 - Struct/Enum/typedef names use `PascalCase`
@@ -40,6 +42,15 @@ The following overrule `c3-expert`:
 This matches the C3 standard library and the `c3-expert` skill's defaults;
 the earlier draft said `camelCase` (with a typo) but the codebase and the
 ecosystem are `snake_case` throughout.
+
+#### Code structure
+
+- Definitions must follow the following order:
+  1. Constants
+  2. Enums
+  3. Structs
+  4. Struct methods
+  5. Pure functions
 
 ## Layout
 

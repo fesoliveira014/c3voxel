@@ -1,11 +1,13 @@
 module c3voxel;
 
 import std::io;
+import std::math;
 
 import glfw;
 
 import c3voxel::platform;
 import c3voxel::gpu;
+import c3voxel::voxel;
 
 const String VS_PATH = "src/shaders/fullscreen.vert.glsl";
 const String FS_PATH = "src/shaders/fullscreen.frag.glsl";
@@ -33,40 +35,38 @@ fn int main(String[] args)
     cmd.init();
     defer cmd.destroy();
 
-    gpu::ShaderStageSpec[2] specs = {
+    gpu::ShaderStageSpec[2] fullscreen_specs = {
         { gpu::ShaderStageKind.VERTEX,   VS_PATH },
         { gpu::ShaderStageKind.FRAGMENT, FS_PATH },
     };
-
-    gpu::Shader? loaded = gpu::shader_load(mem, specs[..]);
-    if (catch err = loaded) {
-        io::eprintfn("Failed to load shader: %s", err);
+    gpu::Shader? fs_loaded = gpu::shader_load(mem, fullscreen_specs[..]);
+    if (catch err = fs_loaded) {
+        io::eprintfn("Failed to load fullscreen shader: %s", err);
         return 1;
     }
-    gpu::Shader shader = loaded;
-    defer gpu::shader_destroy(shader);
+    gpu::Shader fullscreen = fs_loaded;
+    defer gpu::shader_destroy(fullscreen);
 
-    const int CHECKER_SIZE = 16;
-    gpu::Texture2D checker = gpu::texture2d_create({
-        .width  = CHECKER_SIZE,
-        .height = CHECKER_SIZE,
-        .fmt    = gpu::Format.RGBA8,
-        .levels = 1,
-    });
-    defer gpu::texture2d_destroy(checker);
-
-    char[CHECKER_SIZE * CHECKER_SIZE * 4] pixels;
-    for (int y = 0; y < CHECKER_SIZE; y++) {
-        for (int x = 0; x < CHECKER_SIZE; x++) {
-            int i = (y * CHECKER_SIZE + x) * 4;
-            bool light = (((x >> 1) ^ (y >> 1)) & 1) != 0;
-            pixels[i + 0] = light ? (char)0xc0 : (char)0x30;
-            pixels[i + 1] = light ? (char)0xc0 : (char)0x30;
-            pixels[i + 2] = light ? (char)0xf0 : (char)0x50;
-            pixels[i + 3] = (char)0xff;
-        }
+    voxel::GenerateContext? gen_loaded = voxel::generate_context_create(mem);
+    if (catch err = gen_loaded) {
+        io::eprintfn("Failed to load generate shader: %s", err);
+        return 1;
     }
-    gpu::texture2d_upload(checker, &pixels, gpu::Format.RGBA8, 0, 0, 0, CHECKER_SIZE, CHECKER_SIZE);
+    voxel::GenerateContext gen = gen_loaded;
+    defer voxel::generate_context_destroy(&gen);
+
+    voxel::RayMarchContext? rm_loaded = voxel::raymarch_context_create(mem, win.fb_width, win.fb_height);
+    if (catch err = rm_loaded) {
+        io::eprintfn("Failed to load raymarch shader: %s", err);
+        return 1;
+    }
+    voxel::RayMarchContext rm = rm_loaded;
+    defer voxel::raymarch_context_destroy(&rm);
+
+    voxel::Volume volume = voxel::volume_create();
+    defer voxel::volume_destroy(&volume);
+
+    voxel::generate_dispatch(&cmd, &gen, &volume, 0.0);
 
     platform::FrameClock clock;
     clock.init();
@@ -75,14 +75,28 @@ fn int main(String[] args)
         clock.tick();
 
         if (win.key_down(glfw::KEY_ESCAPE)) win.request_close();
-        if (clock.frame % RELOAD_CHECK_INTERVAL == 0) gpu::shader_reload_if_changed(shader);
+        if (clock.frame % RELOAD_CHECK_INTERVAL == 0) {
+            gpu::shader_reload_if_changed(fullscreen);
+            gpu::shader_reload_if_changed(gen.shader);
+            gpu::shader_reload_if_changed(rm.shader);
+        }
+
+        voxel::raymarch_context_resize(&rm, win.fb_width, win.fb_height);
+
+        float theta = (float)clock.time * 0.45;
+        float radius = 3.0;
+        float cx = (float)math::cos(theta);
+        float sx = (float)math::sin(theta);
+        float[4] cam_pos = { radius * cx, 1.3, radius * sx, 0.0 };
 
         cmd.begin_frame();
+        voxel::raymarch_dispatch(&cmd, &rm, &volume, cam_pos);
+
         cmd.bind_default_framebuffer();
         cmd.set_viewport(0, 0, win.fb_width, win.fb_height);
-        cmd.clear(0.05, 0.05, 0.08, 1.0);
-        cmd.bind_shader(shader);
-        cmd.bind_texture_2d(0, checker);
+        cmd.clear(0.02, 0.02, 0.04, 1.0);
+        cmd.bind_shader(fullscreen);
+        cmd.bind_texture_2d(0, rm.target);
         cmd.draw_fullscreen_quad();
         cmd.end_frame();
 
