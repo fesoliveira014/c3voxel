@@ -54,6 +54,16 @@ Milestone reference: `docs/ARCHITECTURE.md` §Multi-page hierarchy,
 Each locked decision stands until a subsequent spec revision explicitly
 overrides it.
 
+### Additional decisions (post-review revision)
+
+| # | Question | Decision |
+|---|----------|----------|
+| 7 | `HOLDERS_PER_BLOCK` value | **Keep arch constant at 8.** `Block.holders` is sized `8*8 = 64`; Phase 1 populates only the 2×2 corner (4 entries); remaining 60 stay `HOLDER_INVALID`. Memory per Block for handle storage is 256 bytes — trivial. The heightmap texture is sized to Phase-1-active extent (`2*2*128 = 512` pixels per axis). |
+| 8 | Composite sampler indirection | **4 hard-coded `sampler2D` bindings per layer** in `composite.frag.glsl` (`holder0_color/holder0_height`…`holder3_color/holder3_height`). Unrolled 4-iteration compare. Phase 2 with variable holder counts will revisit via `sampler2DArray` or `ARB_bindless_texture`. |
+| 9 | VolumeRing retention policy | **Retained past startup.** 32 MB is cheap; Phase 2's regen on dirty will need them alive. `§15` no longer lists this as open. |
+| 10 | Noise reference | **`docs/noise-reference.md`** (arrived post-brainstorm) is the authoritative contract. Phase 1 implements a minimal subset: `simplex2(x, z, seed) + fbm2(octaves=4)`; other dimensions (3D/4D) and classic Perlin stub out for M7+. |
+| 11 | Block heightmap dimension | `HEIGHTMAP_PIXELS = PIXELS_PER_PAGE * PAGES_PER_HOLDER * ACTIVE_HOLDERS_PER_AXIS = 128 * 2 * 2 = 512`. Matches §10 budget (1 MB R32F). `ACTIVE_HOLDERS_PER_AXIS` const introduced in `src/world/coords.c3`. |
+
 ---
 
 ## 3. Module layout
@@ -74,11 +84,12 @@ src/world/holder.c3     Holder, HolderPool, HolderId
 src/world/page.c3       Page, PagePool, PageId
 ```
 
-Existing `src/world/coords.c3` is extended with an `IVec3` key alias
-(or reuses `core::IVec3`) for the pool hash lookups. The currently
-unused `WorldPixel` / `Meter` / `PageCoord` / `HolderCoord` /
-`BlockCoord` typedefs become load-bearing and are threaded through all
-pool APIs.
+Existing `src/world/coords.c3` reuses `core::IVec3` for the pool hash
+lookup keys (no second definition). The currently unused `WorldPixel`
+/ `Meter` / `PageCoord` / `HolderCoord` / `BlockCoord` typedefs become
+load-bearing and are threaded through all pool APIs. Adds
+`ACTIVE_HOLDERS_PER_AXIS = 2` (Phase-1-specific) alongside the arch
+`HOLDERS_PER_BLOCK = 8`.
 
 ### Voxel (extended)
 
@@ -142,7 +153,7 @@ import c3voxel::gpu;
 struct Block {
     BlockCoord     cx, cz;
     HolderId[HOLDERS_PER_BLOCK * HOLDERS_PER_BLOCK] holders;
-    gpu::Texture2D heightmap;      // R32F, dimension = PIXELS_PER_PAGE * PAGES_PER_HOLDER * HOLDERS_PER_BLOCK
+    gpu::Texture2D heightmap;      // R32F, dimension = PIXELS_PER_PAGE * PAGES_PER_HOLDER * ACTIVE_HOLDERS_PER_AXIS = 512 for Phase 1
     bool           heightmap_dirty;
 }
 
@@ -251,17 +262,18 @@ while (!win.should_close()) {
 }
 ```
 
-`composite.dispatch` binds up to 4 holder sprite textures (color
-+ height) plus the camera UBO and issues a single fullscreen triangle.
-The fragment shader computes the iso-projected uv for each holder's
-screen rectangle, samples both layers, picks the fragment with the
-largest height value, and writes the resulting color.
+`composite.dispatch` binds 4 holder sprite color + 4 height textures
+(8 samplers total, hard-coded slots 0..7 per Decision 8) plus a UBO
+containing per-holder screen rects, and issues a single fullscreen
+triangle. The fragment shader iterates 4 holders (unrolled loop),
+tests each pixel against the holder's screen rectangle, samples color
++ height if inside, and keeps the fragment with the largest height
+value. Pixels outside every holder rect fall back to the pre-cleared
+background.
 
-Phase 1 doesn't need a composite camera UBO more elaborate than the
-existing one — iso math already lives in `game::camera_isometric`.
-Compositor receives a precomputed list of `{ holder_tex_color,
-holder_tex_height, screen_rect_min, screen_rect_max, world_depth }`
-quads; the fragment derives uv per-holder via inverse iso transform.
+The `world_depth` metadata mentioned in earlier drafts is dropped —
+the per-pixel max-height comparison already resolves occlusion without
+per-holder global depth.
 
 ---
 
@@ -453,20 +465,22 @@ Exact todo numbers assigned after the spec is committed; the current
 
 ## 15. Risks / open questions
 
-- **Sub-rect raymarch uniforms.** The raymarch compute shader already
-  reads its `resolution` and `pitches` from a UBO. Adding
-  `write_offset` is mechanical but must respect std140 alignment
-  (needs to land as `ivec4` to avoid padding surprises).
+- **Sub-rect raymarch math.** Dispatch `((PIXELS_PER_PAGE + 7) / 8,
+  (PIXELS_PER_PAGE + 7) / 8, 1)` per page. Thread maps to
+  `(gl_GlobalInvocationID.xy + write_offset)` for the output
+  `imageStore`, but NDC and ray direction are derived from
+  `gl_GlobalInvocationID.xy / vec2(PIXELS_PER_PAGE)`, i.e. the page's
+  own local pixel space. `write_offset` only affects the output
+  pixel coordinate, not the ray math. Separate UBO members:
+  `page_pixels` = output sub-rect size, `write_offset` = output
+  corner within holder FBO.
 - **Heightmap sampling in generate.** World-to-heightmap UV
-  derivation happens per-voxel-column, not per-voxel. Phase 1 can
-  recompute per-voxel for simplicity; if profiling shows it to be
-  cheap enough (it should) no further work.
-- **Composite pass sampler indirection.** GLSL doesn't allow dynamic
-  sampler indexing cleanly without `ARB_bindless_texture`. For
-  Phase 1 with exactly 4 holders we can hard-code the 4 sampler
-  uniforms and unroll the loop. Generalising to N holders is Phase 2's
-  `world::streaming` concern.
-- **VolumeRing retention.** Retaining the 4 volume textures past
-  startup for Phase 2's regen use costs 32 MB. Cheap. If tight on
-  VRAM later, freeing after startup and re-allocating on first regen
-  is a trivial adjustment.
+  derivation happens per-voxel. Phase 1 accepts per-voxel recomputation
+  as negligible cost; optimise in M7+ if profiling shows otherwise.
+- **c3c generic alias verification.** `alias Hash{K, V} =
+  std::collections::map::HashMap{K, V}` assumes c3c 0.7.11 supports
+  parameterised module aliases over parametric modules
+  (`std::collections::map <Key, Value>`). If the alias fails to
+  compile, the fallback is a thin wrapper struct per (K, V) pair
+  used (we have three: `(IVec3, int)` three times). The wrapper pays
+  a small LOC cost, not a design cost.
