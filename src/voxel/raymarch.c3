@@ -4,12 +4,25 @@ import c3voxel::gpu;
 
 struct RayMarchUniforms @packed @align(16) {
     float[4] camera_pos;
+    float[4] camera_forward;
+    float[4] camera_right;
+    float[4] camera_up;
     float[4] world_min;
     float[4] world_max;
     int[4]   resolution;
     int[4]   pitches;
-    float    fov_scale;
-    float[3] _pad;
+    float    half_extent_x;
+    float    half_extent_y;
+    float[2] _pad;
+}
+
+struct View {
+    float[4] position;
+    float[4] forward;
+    float[4] right;
+    float[4] up;
+    float    half_extent_x;
+    float    half_extent_y;
 }
 
 struct RayMarchContext {
@@ -64,15 +77,19 @@ fn void RayMarchContext.resize(&self, int w, int h)
     self.target_h = h;
 }
 
-fn void RayMarchContext.dispatch(&self, gpu::Commands* cmd, Volume* v, DistanceField* df, float[4] camera_pos)
+fn void RayMarchContext.dispatch(&self, gpu::Commands* cmd, Volume* v, DistanceField* df, View view)
 {
     RayMarchUniforms u = {
-        .camera_pos = camera_pos,
-        .world_min  = { -1.0, -1.0, -1.0, 0.0 },
-        .world_max  = {  1.0,  1.0,  1.0, 0.0 },
-        .resolution = { self.target_w, self.target_h, 0, 0 },
-        .pitches    = { VOLUME_PITCH, DF_PITCH, 4, 0 },
-        .fov_scale  = 0.8,
+        .camera_pos     = view.position,
+        .camera_forward = view.forward,
+        .camera_right   = view.right,
+        .camera_up      = view.up,
+        .world_min      = { -1.0, -1.0, -1.0, 0.0 },
+        .world_max      = {  1.0,  1.0,  1.0, 0.0 },
+        .resolution     = { self.target_w, self.target_h, 0, 0 },
+        .pitches        = { VOLUME_PITCH, DF_PITCH, 4, 0 },
+        .half_extent_x  = view.half_extent_x,
+        .half_extent_y  = view.half_extent_y,
     };
     gpu::buffer_upload(self.ubo, &u, 0, RayMarchUniforms.sizeof);
 

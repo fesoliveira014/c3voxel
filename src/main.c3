@@ -1,13 +1,13 @@
 module c3voxel;
 
 import std::io;
-import std::math;
 
 import glfw;
 
 import c3voxel::platform;
 import c3voxel::gpu;
 import c3voxel::voxel;
+import c3voxel::game;
 
 const String VS_PATH = "resources/shaders/fullscreen.vert.glsl";
 const String FS_PATH = "resources/shaders/fullscreen.frag.glsl";
@@ -104,14 +104,14 @@ fn int main(String[] args)
 
         rm.resize(win.fb_width, win.fb_height);
 
-        float theta = (float)clock.time * 0.45;
-        float radius = 3.0;
-        float cx = (float)math::cos(theta);
-        float sx = (float)math::sin(theta);
-        float[4] cam_pos = { radius * cx, 1.3, radius * sx, 0.0 };
+        float aspect     = (float)win.fb_width / (float)win.fb_height;
+        float zoom       = 1.25;
+        float[4] target  = { 0.0, 0.0, 0.0, 0.0 };
+        float azimuth    = 45.0 + (float)clock.time * 30.0;
+        game::CameraState cam = game::camera_isometric(target, zoom, aspect, azimuth);
 
         cmd.begin_frame();
-        rm.dispatch(&cmd, &volume, &df, cam_pos);
+        rm.dispatch(&cmd, &volume, &df, cam.to_view());
 
         cmd.bind_default_framebuffer();
         cmd.set_viewport(0, 0, win.fb_width, win.fb_height);

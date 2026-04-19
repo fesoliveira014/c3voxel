@@ -8,11 +8,15 @@ layout(binding = 2, rgba8)  uniform restrict writeonly image2D target;
 
 layout(std140, binding = 3) uniform U {
     vec4  camera_pos;
+    vec4  camera_forward;
+    vec4  camera_right;
+    vec4  camera_up;
     vec4  world_min;
     vec4  world_max;
     ivec4 resolution;
     ivec4 pitches;     // x = volume pitch, y = df pitch, z = cell voxels
-    float fov_scale;
+    float half_extent_x;
+    float half_extent_y;
 };
 
 const int MAX_STEPS = 256;
@@ -35,16 +39,11 @@ void main()
     if (pix.x >= resolution.x || pix.y >= resolution.y) return;
 
     vec2 ndc = (vec2(pix) + 0.5) / vec2(resolution.xy) * 2.0 - 1.0;
-    float aspect = float(resolution.x) / float(resolution.y);
 
-    vec3 ro       = camera_pos.xyz;
-    vec3 forward  = normalize(-camera_pos.xyz);
-    vec3 world_up = abs(forward.y) > 0.99 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
-    vec3 right    = normalize(cross(forward, world_up));
-    vec3 up       = cross(right, forward);
-    vec3 rd       = normalize(forward
-                            + ndc.x * aspect * fov_scale * right
-                            + ndc.y * fov_scale * up);
+    vec3 ro = camera_pos.xyz
+            + ndc.x * half_extent_x * camera_right.xyz
+            + ndc.y * half_extent_y * camera_up.xyz;
+    vec3 rd = camera_forward.xyz;
 
     int   volume_pitch = pitches.x;
     int   df_pitch     = pitches.y;
