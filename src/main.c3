@@ -47,29 +47,28 @@ fn int main(String[] args)
     gpu::Shader fullscreen = fs_loaded;
     defer gpu::shader_destroy(fullscreen);
 
-    voxel::GenerateContext? gen_loaded = voxel::generate_context_create(mem);
-    if (catch err = gen_loaded) {
+    voxel::GenerateContext gen;
+    if (catch err = gen.init(mem)) {
         io::eprintfn("Failed to load generate shader: %s", err);
         return 1;
     }
-    voxel::GenerateContext gen = gen_loaded;
-    defer voxel::generate_context_destroy(&gen);
+    defer gen.destroy();
 
-    voxel::RayMarchContext? rm_loaded = voxel::raymarch_context_create(mem, win.fb_width, win.fb_height);
-    if (catch err = rm_loaded) {
+    voxel::RayMarchContext rm;
+    if (catch err = rm.init(mem, win.fb_width, win.fb_height)) {
         io::eprintfn("Failed to load raymarch shader: %s", err);
         return 1;
     }
-    voxel::RayMarchContext rm = rm_loaded;
-    defer voxel::raymarch_context_destroy(&rm);
+    defer rm.destroy();
 
-    voxel::Volume volume = voxel::volume_create();
-    defer voxel::volume_destroy(&volume);
-
-    voxel::generate_dispatch(&cmd, &gen, &volume, 0.0);
+    voxel::Volume volume;
+    volume.init();
+    defer volume.destroy();
 
     platform::FrameClock clock;
     clock.init();
+
+    gen.dispatch(&cmd, &volume, 0.0);
 
     while (!win.should_close()) {
         clock.tick();
@@ -77,11 +76,13 @@ fn int main(String[] args)
         if (win.key_down(glfw::KEY_ESCAPE)) win.request_close();
         if (clock.frame % RELOAD_CHECK_INTERVAL == 0) {
             gpu::shader_reload_if_changed(fullscreen);
-            gpu::shader_reload_if_changed(gen.shader);
+            if (gpu::shader_reload_if_changed(gen.shader)) {
+                gen.dispatch(&cmd, &volume, (float)clock.time);
+            }
             gpu::shader_reload_if_changed(rm.shader);
         }
 
-        voxel::raymarch_context_resize(&rm, win.fb_width, win.fb_height);
+        rm.resize(win.fb_width, win.fb_height);
 
         float theta = (float)clock.time * 0.45;
         float radius = 3.0;
@@ -90,7 +91,7 @@ fn int main(String[] args)
         float[4] cam_pos = { radius * cx, 1.3, radius * sx, 0.0 };
 
         cmd.begin_frame();
-        voxel::raymarch_dispatch(&cmd, &rm, &volume, cam_pos);
+        rm.dispatch(&cmd, &volume, cam_pos);
 
         cmd.bind_default_framebuffer();
         cmd.set_viewport(0, 0, win.fb_width, win.fb_height);

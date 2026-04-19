@@ -44,6 +44,7 @@ enum Format : char {
 
 enum BarrierType : char {
     SHADER_IMAGE_ACCESS,
+    TEXTURE_FETCH,
     FRAMEBUFFER,
     STORAGE_BUFFER,
     ALL,
@@ -75,6 +76,7 @@ fn GLbitfield barrier_to_gl(BarrierType b)
 {
     switch (b) {
         case BarrierType.SHADER_IMAGE_ACCESS: return (GLbitfield)gl::GL_SHADER_IMAGE_ACCESS_BARRIER_BIT;
+        case BarrierType.TEXTURE_FETCH:       return (GLbitfield)(gl::GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | gl::GL_TEXTURE_FETCH_BARRIER_BIT);
         case BarrierType.FRAMEBUFFER:         return (GLbitfield)gl::GL_FRAMEBUFFER_BARRIER_BIT;
         case BarrierType.STORAGE_BUFFER:      return (GLbitfield)gl::GL_SHADER_STORAGE_BARRIER_BIT;
         case BarrierType.ALL:                 return (GLbitfield)gl::GL_ALL_BARRIER_BITS;

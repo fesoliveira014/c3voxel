@@ -37,7 +37,8 @@ void main()
 
     vec3 ro      = camera_pos.xyz;
     vec3 forward = normalize(-camera_pos.xyz);
-    vec3 right   = normalize(cross(forward, vec3(0.0, 1.0, 0.0)));
+    vec3 world_up = abs(forward.y) > 0.99 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
+    vec3 right   = normalize(cross(forward, world_up));
     vec3 up      = cross(right, forward);
     vec3 rd      = normalize(forward
                            + ndc.x * aspect * fov_scale * right

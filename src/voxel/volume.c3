@@ -8,21 +8,19 @@ struct Volume {
     gpu::Texture3D tex;
 }
 
-fn Volume volume_create()
+fn void Volume.init(&self)
 {
-    return {
-        .tex = gpu::texture3d_create({
-            .width  = VOLUME_PITCH,
-            .height = VOLUME_PITCH,
-            .depth  = VOLUME_PITCH,
-            .fmt    = gpu::Format.RGBA8,
-            .levels = 1,
-        }),
-    };
+    self.tex = gpu::texture3d_create({
+        .width  = VOLUME_PITCH,
+        .height = VOLUME_PITCH,
+        .depth  = VOLUME_PITCH,
+        .fmt    = gpu::Format.RGBA8,
+        .levels = 1,
+    });
 }
 
-fn void volume_destroy(Volume* v)
+fn void Volume.destroy(&self)
 {
-    gpu::texture3d_destroy(v.tex);
-    v.tex = gpu::TEXTURE3D_INVALID;
+    gpu::texture3d_destroy(self.tex);
+    self.tex = gpu::TEXTURE3D_INVALID;
 }
