@@ -94,6 +94,7 @@ fn int main(String[] args)
                 return 1;
             }
             world::HolderId hid = hid_opt;
+            block_pool.retain(block_id);
             int hi = (int)hz * world::ACTIVE_HOLDERS_PER_AXIS + (int)hx;
             holder_ids[hi] = hid;
             world::Holder* holder = holder_pool.get(hid);

@@ -57,9 +57,12 @@ fn int GpuPool.acquire(&self, HolderId for_holder, HolderPool* holders, BlockPoo
     int evict_idx = 0;
     uint oldest   = self.slots[0].last_touched_frame;
     for (int i = 1; i < POOL_SIZE; i++) {
-        if (self.slots[i].last_touched_frame < oldest) {
+        uint ts = self.slots[i].last_touched_frame;
+        if (ts < oldest) {
             evict_idx = i;
-            oldest    = self.slots[i].last_touched_frame;
+            oldest    = ts;
+        } else if (ts == oldest && (uint)self.slots[i].owner < (uint)self.slots[evict_idx].owner) {
+            evict_idx = i;
         }
     }
     holders.evict(self.slots[evict_idx].owner, blocks);
@@ -76,6 +79,9 @@ fn void GpuPool.touch(&self, int slot_idx)
 
 fn HolderId ensure_holder_exists(BlockPool* blocks, HolderPool* holders, PagePool* pages, HolderCoord hx, HolderCoord hz)
 {
+    HolderId existing = holders.find(hx, hz);
+    if ((uint)existing != core::HANDLE_INVALID_VALUE) return existing;
+
     int hx_i = (int)hx;
     int hz_i = (int)hz;
     int cx = floor_div(hx_i, HOLDERS_PER_BLOCK);
@@ -85,6 +91,7 @@ fn HolderId ensure_holder_exists(BlockPool* blocks, HolderPool* holders, PagePoo
     HolderId? hid_opt = holders.get_or_create(hx, hz, bid);
     if (catch err = hid_opt) return HOLDER_INVALID;
     HolderId hid = hid_opt;
+    blocks.retain(bid);
 
     Holder* holder = holders.get(hid);
     if (holder == null) return HOLDER_INVALID;

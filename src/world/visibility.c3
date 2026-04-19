@@ -47,10 +47,13 @@ fn HolderRect visible_holder_rect(core::Vec3 pan_target, float zoom, int fb_w, i
     if (c3.z < min_z) min_z = c3.z; if (c3.z > max_z) max_z = c3.z;
 
     int holder_extent = HOLDER_WORLD_EXTENT;
-    int x0 = (int)math::floor(min_x / (float)holder_extent) - margin;
-    int z0 = (int)math::floor(min_z / (float)holder_extent) - margin;
-    int x1 = (int)math::floor(max_x / (float)holder_extent) + margin;
-    int z1 = (int)math::floor(max_z / (float)holder_extent) + margin;
+    float extent_f    = (float)holder_extent;
+    int x0 = (int)math::floor(min_x / extent_f) - margin;
+    int z0 = (int)math::floor(min_z / extent_f) - margin;
+    int x1 = (int)math::floor((max_x - 0.001f) / extent_f) + margin;
+    int z1 = (int)math::floor((max_z - 0.001f) / extent_f) + margin;
+    if (x1 < x0) x1 = x0;
+    if (z1 < z0) z1 = z0;
     return { (HolderCoord)x0, (HolderCoord)z0, (HolderCoord)x1, (HolderCoord)z1 };
 }
 

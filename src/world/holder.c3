@@ -51,6 +51,20 @@ fn void HolderPool.destroy(&self)
     self.allocator = null;
 }
 
+fn HolderId HolderPool.find(&self, HolderCoord hx, HolderCoord hz)
+{
+    core::IVec3 key = { (int)hx, 0, (int)hz };
+    if (try found = self.lookup.get(key)) {
+        usz idx = (usz)found;
+        return (HolderId)core::handle_pack((uint)idx, (uint)self.storage[idx].generation);
+    }
+    return HOLDER_INVALID;
+}
+
+// Allocates a new holder. Caller is responsible for retaining the
+// parent block (call `BlockPool.retain(block_id)` once per new
+// holder). Use `find()` first if you only want lookup without the
+// alloc side-effect.
 fn HolderId? HolderPool.get_or_create(&self, HolderCoord hx, HolderCoord hz, BlockId block_id)
 {
     core::IVec3 key = { (int)hx, 0, (int)hz };
@@ -68,16 +82,28 @@ fn HolderId? HolderPool.get_or_create(&self, HolderCoord hx, HolderCoord hz, Blo
         .has_depth = false,
     })!;
 
-    usz idx = self.storage.len();
+    usz idx       = self.storage.len();
+    char next_gen = 0;
+    for (usz i = 0; i < self.storage.len(); i++) {
+        if (!self.storage[i].alive) {
+            idx      = i;
+            next_gen = self.storage[i].generation;
+            break;
+        }
+    }
     HolderSlot slot = {
         .holder     = { .hx = hx, .hz = hz, .block_id = block_id, .pages = {}, .fbo_layer0 = fbo },
-        .generation = 0,
+        .generation = next_gen,
         .alive      = true,
     };
     for (int i = 0; i < PAGES_PER_HOLDER * PAGES_PER_HOLDER; i++) slot.holder.pages[i] = PAGE_INVALID;
-    self.storage.push(slot);
+    if (idx == self.storage.len()) {
+        self.storage.push(slot);
+    } else {
+        self.storage[idx] = slot;
+    }
     self.lookup.set(key, (int)idx);
-    return (HolderId)core::handle_pack((uint)idx, 0);
+    return (HolderId)core::handle_pack((uint)idx, (uint)next_gen);
 }
 
 fn void HolderPool.evict(&self, HolderId id, BlockPool* blocks)

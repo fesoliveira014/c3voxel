@@ -52,12 +52,13 @@ fn void BlockPool.destroy(&self)
     self.allocator = null;
 }
 
+// Look up or lazily create a block. Does NOT bump holder_ref_count —
+// ref management is the caller's job (see `retain` / `decrement_ref`).
 fn BlockId BlockPool.get_or_create(&self, BlockCoord cx, BlockCoord cz)
 {
     core::IVec3 key = { (int)cx, 0, (int)cz };
     if (try found = self.lookup.get(key)) {
         usz idx = (usz)found;
-        self.storage[idx].block.holder_ref_count++;
         return (BlockId)core::handle_pack((uint)idx, (uint)self.storage[idx].generation);
     }
 
@@ -68,7 +69,15 @@ fn BlockId BlockPool.get_or_create(&self, BlockCoord cx, BlockCoord cz)
         .levels = 1,
     });
 
-    usz idx = self.storage.len();
+    usz idx        = self.storage.len();
+    char next_gen  = 0;
+    for (usz i = 0; i < self.storage.len(); i++) {
+        if (!self.storage[i].alive) {
+            idx      = i;
+            next_gen = self.storage[i].generation;
+            break;
+        }
+    }
     BlockSlot slot = {
         .block = {
             .cx               = cx,
@@ -76,15 +85,32 @@ fn BlockId BlockPool.get_or_create(&self, BlockCoord cx, BlockCoord cz)
             .holders          = {},
             .heightmap        = hm,
             .heightmap_dirty  = true,
-            .holder_ref_count = 1,
+            .holder_ref_count = 0,
         },
-        .generation = 0,
+        .generation = next_gen,
         .alive      = true,
     };
     for (int i = 0; i < HOLDERS_PER_BLOCK * HOLDERS_PER_BLOCK; i++) slot.block.holders[i] = HOLDER_INVALID;
-    self.storage.push(slot);
+    if (idx == self.storage.len()) {
+        self.storage.push(slot);
+    } else {
+        self.storage[idx] = slot;
+    }
     self.lookup.set(key, (int)idx);
-    return (BlockId)core::handle_pack((uint)idx, 0);
+    return (BlockId)core::handle_pack((uint)idx, (uint)next_gen);
+}
+
+fn void BlockPool.retain(&self, BlockId id)
+{
+    uint h = (uint)id;
+    if (h == core::HANDLE_INVALID_VALUE) return;
+    uint idx = core::handle_index(h);
+    uint gen = core::handle_gen(h);
+    if (idx >= self.storage.len()) return;
+    BlockSlot* slot = &self.storage[idx];
+    if (!slot.alive) return;
+    if ((uint)slot.generation != gen) return;
+    slot.block.holder_ref_count++;
 }
 
 fn void BlockPool.decrement_ref(&self, BlockId id)
