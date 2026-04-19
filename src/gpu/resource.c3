@@ -30,7 +30,8 @@ struct Framebuffer {
 }
 
 struct Commands {
-    uint empty_vao;
+    uint   empty_vao;
+    Timer* timer;
 }
 
 enum Access : char {

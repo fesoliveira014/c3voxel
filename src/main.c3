@@ -33,8 +33,13 @@ fn int main(String[] args)
     io::printfn("Renderer: %s", gpu::renderer_string());
     io::printfn("OpenGL version: %s", gpu::version_string());
 
+    gpu::Timer timer;
+    timer.init();
+    defer timer.destroy();
+
     gpu::Commands cmd;
     cmd.init();
+    cmd.timer = &timer;
     defer cmd.destroy();
 
     voxel::GenerateContext gen;
@@ -90,6 +95,7 @@ fn int main(String[] args)
 
     core::Vec3 pan_target = { 0.0f, 0.0f, 0.0f };
     float      zoom_scale = 1.0f;
+    bool       f12_prev   = false;
 
     platform::FrameClock clock;
     clock.init();
@@ -101,6 +107,10 @@ fn int main(String[] args)
         platform::input_poll(&mouse, &win);
 
         if (win.key_down(glfw::KEY_ESCAPE)) win.request_close();
+
+        bool f12_now = win.key_down(glfw::KEY_F12);
+        if (f12_now && !f12_prev) timer.dump();
+        f12_prev = f12_now;
 
         if (mouse.left_down) {
             pan_target.x -= (float)mouse.dx * PAN_SENSITIVITY / zoom_scale;
@@ -132,17 +142,25 @@ fn int main(String[] args)
                         pan_target.x, pan_target.z, zoom_scale);
         }
 
+        timer.begin_frame();
+        cmd.time_push("frame");
+
+        cmd.time_push("stream");
         world::streaming_update(&pool, &block_pool, &holder_pool, &page_pool, &dirty,
                                 pan_target, zoom_scale, win.fb_width, win.fb_height);
+        cmd.time_pop();
 
+        cmd.time_push("generate");
         drain_dirty(&cmd, &gen, &jfa, &rm, &ring, &df,
                     &block_pool, &holder_pool, &page_pool, &pool, &dirty,
                     pan_target, world::MAX_REGEN_PER_FRAME);
+        cmd.time_pop();
 
         cmd.begin_frame();
         cmd.bind_default_framebuffer();
         cmd.set_viewport(0, 0, win.fb_width, win.fb_height);
         cmd.clear(0.02f, 0.02f, 0.04f, 1.0f);
+        cmd.time_push("composite");
 
         core::Vec4[world::POOL_SIZE] screen_min;
         core::Vec4[world::POOL_SIZE] screen_max;
@@ -164,8 +182,12 @@ fn int main(String[] args)
         composite.dispatch(&cmd, &pool, &holder_pool,
                            screen_min[..], screen_max[..], alive_mask,
                            win.fb_width, win.fb_height);
+        cmd.time_pop();
 
         cmd.end_frame();
+        cmd.time_pop();
+        timer.end_frame();
+        timer.resolve_prev();
         win.poll();
         win.swap();
     }
