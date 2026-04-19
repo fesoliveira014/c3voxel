@@ -7,7 +7,7 @@ enum BufferUsage : char {
     DYNAMIC,
 }
 
-fn Buffer buffer_create(usz size, BufferUsage usage, void* initial = null)
+fn Buffer buffer_create(ByteSize size, BufferUsage usage, void* initial = null)
 {
     uint id;
     gl::createBuffers(1, &id);
@@ -19,7 +19,7 @@ fn Buffer buffer_create(usz size, BufferUsage usage, void* initial = null)
     return (Buffer)id;
 }
 
-fn void buffer_upload(Buffer b, void* data, usz offset, usz size)
+fn void buffer_upload(Buffer b, void* data, ByteOffset offset, ByteSize size)
 {
     gl::namedBufferSubData((uint)b, (iptr)offset, (isz)size, data);
 }

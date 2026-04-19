@@ -2,7 +2,8 @@ module c3voxel::voxel;
 
 import c3voxel::gpu;
 
-const int DF_PITCH = 32;
+const int DF_PITCH    = 32;
+const int CELL_VOXELS = 4;
 
 struct DistanceFieldStepUniforms @packed @align(16) {
     int    step;

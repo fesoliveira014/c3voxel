@@ -2,9 +2,16 @@ module c3voxel::gpu;
 
 import opengl::gl;
 
+import c3voxel::world;
+
+alias Pixel = world::Pixel;
+
 typedef Texture2D = inline uint;
 typedef Texture3D = inline uint;
 typedef Buffer    = inline uint;
+alias   Binding    = uint;
+alias   ByteSize   = usz;
+alias   ByteOffset = usz;
 
 const Texture2D TEXTURE2D_INVALID = (Texture2D)0;
 const Texture3D TEXTURE3D_INVALID = (Texture3D)0;
@@ -18,8 +25,8 @@ struct Framebuffer {
     int                            color_count;
     Texture2D                      depth;
     bool                           has_depth;
-    int                            width;
-    int                            height;
+    Pixel                          width;
+    Pixel                          height;
 }
 
 struct Commands {

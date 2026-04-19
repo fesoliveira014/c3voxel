@@ -1,39 +1,41 @@
 module c3voxel::voxel;
 
+import c3voxel::core;
 import c3voxel::gpu;
+import c3voxel::world;
 
 struct RayMarchUniforms @packed @align(16) {
-    float[4] camera_pos;
-    float[4] camera_forward;
-    float[4] camera_right;
-    float[4] camera_up;
-    float[4] world_min;
-    float[4] world_max;
-    int[4]   resolution;
-    int[4]   pitches;
-    float    half_extent_x;
-    float    half_extent_y;
-    float[2] _pad;
+    core::Vec4  camera_pos;
+    core::Vec4  camera_forward;
+    core::Vec4  camera_right;
+    core::Vec4  camera_up;
+    core::Vec4  world_min;
+    core::Vec4  world_max;
+    core::IVec4 resolution;
+    core::IVec4 pitches;
+    float       half_extent_x;
+    float       half_extent_y;
+    float[2]    _pad;
 }
 
 struct View {
-    float[4] position;
-    float[4] forward;
-    float[4] right;
-    float[4] up;
-    float    half_extent_x;
-    float    half_extent_y;
+    core::Vec4 position;
+    core::Vec4 forward;
+    core::Vec4 right;
+    core::Vec4 up;
+    float      half_extent_x;
+    float      half_extent_y;
 }
 
 struct RayMarchContext {
     gpu::Shader    shader;
     gpu::Buffer    ubo;
     gpu::Texture2D target;
-    int            target_w;
-    int            target_h;
+    world::Pixel   target_w;
+    world::Pixel   target_h;
 }
 
-fn void? RayMarchContext.init(&self, Allocator allocator, int w, int h)
+fn void? RayMarchContext.init(&self, Allocator allocator, world::Pixel w, world::Pixel h)
 {
     gpu::ShaderStageSpec[1] specs = {
         { gpu::ShaderStageKind.COMPUTE, "resources/shaders/raymarch.comp.glsl" },
@@ -62,7 +64,7 @@ fn void RayMarchContext.destroy(&self)
     self.target_h = 0;
 }
 
-fn void RayMarchContext.resize(&self, int w, int h)
+fn void RayMarchContext.resize(&self, world::Pixel w, world::Pixel h)
 {
     if (w <= 0 || h <= 0) return;
     if (w == self.target_w && h == self.target_h) return;
@@ -87,7 +89,7 @@ fn void RayMarchContext.dispatch(&self, gpu::Commands* cmd, Volume* v, DistanceF
         .world_min      = { -1.0, -1.0, -1.0, 0.0 },
         .world_max      = {  1.0,  1.0,  1.0, 0.0 },
         .resolution     = { self.target_w, self.target_h, 0, 0 },
-        .pitches        = { VOLUME_PITCH, DF_PITCH, 4, 0 },
+        .pitches        = { world::VOLUME_PITCH, DF_PITCH, CELL_VOXELS, 0 },
         .half_extent_x  = view.half_extent_x,
         .half_extent_y  = view.half_extent_y,
     };

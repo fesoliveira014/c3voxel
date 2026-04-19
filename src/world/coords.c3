@@ -10,3 +10,4 @@ typedef Meter       = inline float;
 typedef PageCoord   = inline int;
 typedef HolderCoord = inline int;
 typedef BlockCoord  = inline int;
+alias   Pixel       = int;

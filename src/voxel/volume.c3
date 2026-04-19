@@ -1,8 +1,7 @@
 module c3voxel::voxel;
 
 import c3voxel::gpu;
-
-const int VOLUME_PITCH = 128;
+import c3voxel::world;
 
 struct Volume {
     gpu::Texture3D tex;
@@ -11,9 +10,9 @@ struct Volume {
 fn void Volume.init(&self)
 {
     self.tex = gpu::texture3d_create({
-        .width  = VOLUME_PITCH,
-        .height = VOLUME_PITCH,
-        .depth  = VOLUME_PITCH,
+        .width  = world::VOLUME_PITCH,
+        .height = world::VOLUME_PITCH,
+        .depth  = world::VOLUME_PITCH,
         .fmt    = gpu::Format.RGBA8,
         .levels = 1,
     });

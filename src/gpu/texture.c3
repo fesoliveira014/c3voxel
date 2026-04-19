@@ -3,16 +3,16 @@ module c3voxel::gpu;
 import opengl::gl;
 
 struct Texture2DDesc {
-    int    width;
-    int    height;
+    Pixel  width;
+    Pixel  height;
     Format fmt;
     int    levels;
 }
 
 struct Texture3DDesc {
-    int    width;
-    int    height;
-    int    depth;
+    Pixel  width;
+    Pixel  height;
+    Pixel  depth;
     Format fmt;
     int    levels;
 }
@@ -33,7 +33,7 @@ fn Texture2D texture2d_create(Texture2DDesc desc)
     return (Texture2D)id;
 }
 
-fn void texture2d_upload(Texture2D t, void* pixels, Format src_fmt, int level = 0, int x = 0, int y = 0, int w = 0, int h = 0)
+fn void texture2d_upload(Texture2D t, void* pixels, Format src_fmt, int level = 0, Pixel x = 0, Pixel y = 0, Pixel w = 0, Pixel h = 0)
 {
     gl::textureSubImage2D(
         (uint)t, level, x, y, w, h,

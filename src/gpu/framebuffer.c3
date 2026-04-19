@@ -5,8 +5,8 @@ import opengl::gl;
 faultdef FRAMEBUFFER_INCOMPLETE, FRAMEBUFFER_TOO_MANY_COLORS;
 
 struct FramebufferDesc {
-    int      width;
-    int      height;
+    Pixel    width;
+    Pixel    height;
     Format[] colors;
     Format   depth;
     bool     has_depth;

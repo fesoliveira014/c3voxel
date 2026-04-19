@@ -52,6 +52,13 @@ ecosystem are `snake_case` throughout.
   4. Struct methods
   5. Pure functions
 
+#### Types
+
+- Avoid using primitive types for parameters when it refers to an object. Define new type or use alias instead
+  - Bad: `fn void func(int handle, ...)`
+  - Good: `fn void func(Handle handle, ...)`, `typedef Handle = int`
+- C3 has native math vector, matrix and quaternion types (see `std::math::vector`, `std::math::matrix` and `std::math::quaternion`). Instead of using `float[4]` or `float[4][4]`, use the type aliases whenever possible (`Vec4`, `Mat4`)
+
 ## Layout
 
 - `src/` — implementation. Entry point is `src/main.c3`.

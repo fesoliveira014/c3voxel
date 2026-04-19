@@ -4,6 +4,7 @@ import std::io;
 
 import glfw;
 
+import c3voxel::core;
 import c3voxel::platform;
 import c3voxel::gpu;
 import c3voxel::voxel;
@@ -93,7 +94,7 @@ fn int main(String[] args)
             // not just the first. `||` would skip the step reload whenever init reloaded.
             bool jfa_changed  = gpu::shader_reload_if_changed(jfa.init_shader)
                               | gpu::shader_reload_if_changed(jfa.step_shader);
-            if (gen_changed) gen.dispatch(&cmd, &volume, (float)clock.time);
+            if (gen_changed) gen.dispatch(&cmd, &volume, (core::Seconds)(float)clock.time);
             if (gen_changed || jfa_changed) jfa.build(&cmd, &volume, &df);
             gpu::shader_reload_if_changed(rm.shader);
         }
@@ -104,11 +105,11 @@ fn int main(String[] args)
 
         rm.resize(win.fb_width, win.fb_height);
 
-        float aspect     = (float)win.fb_width / (float)win.fb_height;
-        float zoom       = 1.25;
-        float[4] target  = { 0.0, 0.0, 0.0, 0.0 };
-        float azimuth    = 45.0 + (float)clock.time * 30.0;
-        game::CameraState cam = game::camera_isometric(target, zoom, aspect, azimuth);
+        float aspect         = (float)win.fb_width / (float)win.fb_height;
+        float zoom           = 1.25;
+        core::Vec3 target    = { 0.0, 0.0, 0.0 };
+        core::Degrees azim   = (core::Degrees)(45.0 + (float)clock.time * 30.0);
+        game::CameraState cam = game::camera_isometric(target, zoom, aspect, azim);
 
         cmd.begin_frame();
         rm.dispatch(&cmd, &volume, &df, cam.to_view());
