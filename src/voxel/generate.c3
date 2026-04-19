@@ -44,5 +44,5 @@ fn void GenerateContext.dispatch(&self, gpu::Commands* cmd, Volume* v, float tim
     cmd.bind_image(0, v.tex, gpu::Access.WRITE_ONLY, gpu::Format.RGBA8);
     cmd.bind_ubo(1, self.ubo, 0, GenerateUniforms.sizeof);
     cmd.dispatch(VOLUME_PITCH / 4, VOLUME_PITCH / 4, VOLUME_PITCH / 4);
-    cmd.barrier(gpu::BarrierType.TEXTURE_FETCH);
+    cmd.barrier(gpu::BarrierType.IMAGE_TO_TEXTURE);
 }

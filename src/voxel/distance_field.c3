@@ -6,11 +6,13 @@ const int DF_PITCH = 32;
 
 struct DistanceFieldStepUniforms @packed @align(16) {
     int    step;
-    int[3] _pad;
+    int    df_pitch;
+    int[2] _pad;
 }
 
 struct DistanceField {
-    gpu::Texture3D tex;
+    gpu::Texture3D[2] tex;
+    int               current;
 }
 
 struct JumpFloodContext {
@@ -21,20 +23,28 @@ struct JumpFloodContext {
 
 fn void DistanceField.init(&self)
 {
-    self.tex = gpu::texture3d_create({
-        .width  = DF_PITCH,
-        .height = DF_PITCH,
-        .depth  = DF_PITCH,
-        .fmt    = gpu::Format.R8UI,
-        .levels = 1,
-    });
+    for (int i = 0; i < 2; i++) {
+        self.tex[i] = gpu::texture3d_create({
+            .width  = DF_PITCH,
+            .height = DF_PITCH,
+            .depth  = DF_PITCH,
+            .fmt    = gpu::Format.R8UI,
+            .levels = 1,
+        });
+    }
+    self.current = 0;
 }
 
 fn void DistanceField.destroy(&self)
 {
-    gpu::texture3d_destroy(self.tex);
-    self.tex = gpu::TEXTURE3D_INVALID;
+    for (int i = 0; i < 2; i++) {
+        gpu::texture3d_destroy(self.tex[i]);
+        self.tex[i] = gpu::TEXTURE3D_INVALID;
+    }
+    self.current = 0;
 }
+
+fn gpu::Texture3D DistanceField.sampled(&self) @inline => self.tex[self.current];
 
 fn void? JumpFloodContext.init(&self, Allocator allocator)
 {
@@ -63,22 +73,29 @@ fn void JumpFloodContext.build(&self, gpu::Commands* cmd, Volume* v, DistanceFie
 {
     cmd.bind_shader(self.init_shader);
     cmd.bind_image(0, v.tex, gpu::Access.READ_ONLY, gpu::Format.RGBA8);
-    cmd.bind_image(1, df.tex, gpu::Access.WRITE_ONLY, gpu::Format.R8UI);
+    cmd.bind_image(1, df.tex[0], gpu::Access.WRITE_ONLY, gpu::Format.R8UI);
     cmd.dispatch(DF_PITCH / 4, DF_PITCH / 4, DF_PITCH / 4);
     cmd.barrier(gpu::BarrierType.SHADER_IMAGE_ACCESS);
 
-    int step = DF_PITCH / 2;
+    int read_idx = 0;
+    int step     = DF_PITCH / 2;
     while (step >= 1) {
-        DistanceFieldStepUniforms u = { .step = step };
+        int write_idx = 1 - read_idx;
+
+        DistanceFieldStepUniforms u = { .step = step, .df_pitch = DF_PITCH };
         gpu::buffer_upload(self.step_ubo, &u, 0, DistanceFieldStepUniforms.sizeof);
 
         cmd.bind_shader(self.step_shader);
-        cmd.bind_image(0, df.tex, gpu::Access.READ_WRITE, gpu::Format.R8UI);
-        cmd.bind_ubo(1, self.step_ubo, 0, DistanceFieldStepUniforms.sizeof);
+        cmd.bind_image(0, df.tex[read_idx],  gpu::Access.READ_ONLY,  gpu::Format.R8UI);
+        cmd.bind_image(1, df.tex[write_idx], gpu::Access.WRITE_ONLY, gpu::Format.R8UI);
+        cmd.bind_ubo(2, self.step_ubo, 0, DistanceFieldStepUniforms.sizeof);
         cmd.dispatch(DF_PITCH / 4, DF_PITCH / 4, DF_PITCH / 4);
         cmd.barrier(gpu::BarrierType.SHADER_IMAGE_ACCESS);
-        step /= 2;
+
+        read_idx = write_idx;
+        step    /= 2;
     }
 
-    cmd.barrier(gpu::BarrierType.TEXTURE_FETCH);
+    df.current = read_idx;
+    cmd.barrier(gpu::BarrierType.IMAGE_TO_TEXTURE);
 }

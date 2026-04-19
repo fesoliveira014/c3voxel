@@ -7,6 +7,7 @@ struct RayMarchUniforms @packed @align(16) {
     float[4] world_min;
     float[4] world_max;
     int[4]   resolution;
+    int[4]   pitches;
     float    fov_scale;
     float[3] _pad;
 }
@@ -70,18 +71,19 @@ fn void RayMarchContext.dispatch(&self, gpu::Commands* cmd, Volume* v, DistanceF
         .world_min  = { -1.0, -1.0, -1.0, 0.0 },
         .world_max  = {  1.0,  1.0,  1.0, 0.0 },
         .resolution = { self.target_w, self.target_h, 0, 0 },
+        .pitches    = { VOLUME_PITCH, DF_PITCH, 4, 0 },
         .fov_scale  = 0.8,
     };
     gpu::buffer_upload(self.ubo, &u, 0, RayMarchUniforms.sizeof);
 
     cmd.bind_shader(self.shader);
     cmd.bind_texture(0, v.tex);
-    cmd.bind_texture(1, df.tex);
+    cmd.bind_texture(1, df.sampled());
     cmd.bind_image_2d(2, self.target, gpu::Access.WRITE_ONLY, gpu::Format.RGBA8);
     cmd.bind_ubo(3, self.ubo, 0, RayMarchUniforms.sizeof);
 
     int gx = (self.target_w + 7) / 8;
     int gy = (self.target_h + 7) / 8;
     cmd.dispatch(gx, gy, 1);
-    cmd.barrier(gpu::BarrierType.TEXTURE_FETCH);
+    cmd.barrier(gpu::BarrierType.IMAGE_TO_TEXTURE);
 }

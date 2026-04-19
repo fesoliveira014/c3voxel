@@ -88,12 +88,18 @@ fn int main(String[] args)
         if (win.key_down(glfw::KEY_ESCAPE)) win.request_close();
         if (clock.frame % RELOAD_CHECK_INTERVAL == 0) {
             gpu::shader_reload_if_changed(fullscreen);
-            bool gen_changed = gpu::shader_reload_if_changed(gen.shader);
-            bool jfa_changed = gpu::shader_reload_if_changed(jfa.init_shader)
-                             | gpu::shader_reload_if_changed(jfa.step_shader);
+            bool gen_changed  = gpu::shader_reload_if_changed(gen.shader);
+            // `|` on bool is non-short-circuiting — want both shaders probed every cycle,
+            // not just the first. `||` would skip the step reload whenever init reloaded.
+            bool jfa_changed  = gpu::shader_reload_if_changed(jfa.init_shader)
+                              | gpu::shader_reload_if_changed(jfa.step_shader);
             if (gen_changed) gen.dispatch(&cmd, &volume, (float)clock.time);
             if (gen_changed || jfa_changed) jfa.build(&cmd, &volume, &df);
             gpu::shader_reload_if_changed(rm.shader);
+        }
+
+        if (clock.frame > 0 && clock.frame % 60 == 0) {
+            io::printfn("frame %d  dt=%.2f ms", clock.frame, clock.dt * 1000.0);
         }
 
         rm.resize(win.fb_width, win.fb_height);
