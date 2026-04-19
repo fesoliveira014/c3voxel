@@ -17,6 +17,8 @@ struct CameraState {
     float      half_extent_y;
     float      near_plane;
     float      far_plane;
+    core::Vec3 pan_target;
+    float      zoom_scale;
 }
 
 fn voxel::View CameraState.to_view(&self) @inline
@@ -57,5 +59,16 @@ fn CameraState camera_isometric(core::Vec3 target, float zoom, float aspect, cor
         .half_extent_y = zoom,
         .near_plane    = 0.1,
         .far_plane     = distance * 2.0,
+        .pan_target    = { target.x, target.y, target.z },
+        .zoom_scale    = zoom,
     };
+}
+
+const float ISO_TILT = 0.2886751f;
+
+fn core::Vec3 world_xz_to_screen(core::Vec3 pan_target, float zoom, float world_x, float world_y, float world_z) @inline
+{
+    float sx = zoom * ((world_x - pan_target.x) - (world_z - pan_target.z));
+    float sy = zoom * (-ISO_TILT * ((world_x - pan_target.x) + (world_z - pan_target.z)) - world_y);
+    return { sx, sy, 0.0f };
 }

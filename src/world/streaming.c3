@@ -140,3 +140,12 @@ fn void streaming_update(GpuPool* pool, BlockPool* blocks, HolderPool* holders, 
         }
     }
 }
+
+fn float holder_distance_sq(Holder* h, core::Vec3 pan_target) @inline
+{
+    float cx = (float)(int)h.hx * (float)HOLDER_WORLD_EXTENT + (float)HOLDER_WORLD_EXTENT * 0.5f;
+    float cz = (float)(int)h.hz * (float)HOLDER_WORLD_EXTENT + (float)HOLDER_WORLD_EXTENT * 0.5f;
+    float dx = cx - pan_target.x;
+    float dz = cz - pan_target.z;
+    return dx * dx + dz * dz;
+}
