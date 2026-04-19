@@ -19,7 +19,7 @@ layout(std140, binding = 7) uniform U {
     float _pad0;
 };
 
-const int MAX_STEPS = 512;
+const int MAX_STEPS = 1024;
 
 vec2 aabb_intersect(vec3 ro, vec3 rd, vec3 bmin, vec3 bmax)
 {

@@ -49,13 +49,6 @@ fn int main(String[] args)
     }
     defer gen.destroy();
 
-    voxel::JumpFloodContext jfa;
-    if (catch err = jfa.init(mem)) {
-        io::eprintfn("Failed to load JFA shaders: %s", err);
-        return 1;
-    }
-    defer jfa.destroy();
-
     voxel::RayMarchContext rm;
     if (catch err = rm.init(mem)) {
         io::eprintfn("Failed to load raymarch shader: %s", err);
@@ -73,10 +66,6 @@ fn int main(String[] args)
     voxel::VolumeRing ring;
     ring.init();
     defer ring.destroy();
-
-    voxel::DistanceField df;
-    df.init();
-    defer df.destroy();
 
     world::BlockPool  block_pool;
     world::HolderPool holder_pool;
@@ -130,8 +119,6 @@ fn int main(String[] args)
         if (clock.frame % RELOAD_CHECK_INTERVAL == 0) {
             gpu::shader_reload_if_changed(composite.shader);
             gpu::shader_reload_if_changed(gen.shader);
-            gpu::shader_reload_if_changed(jfa.init_shader);
-            gpu::shader_reload_if_changed(jfa.step_shader);
             gpu::shader_reload_if_changed(rm.shader);
         }
 
@@ -151,7 +138,7 @@ fn int main(String[] args)
         cmd.time_pop();
 
         cmd.time_push("generate");
-        drain_dirty(&cmd, &gen, &jfa, &rm, &ring, &df,
+        drain_dirty(&cmd, &gen, &rm, &ring,
                     &block_pool, &holder_pool, &page_pool, &pool, &dirty,
                     pan_target, world::MAX_REGEN_PER_FRAME);
         cmd.time_pop();
@@ -268,10 +255,8 @@ fn usz pick_next_dirty(world::DirtyQueue* dirty, world::HolderPool* holders, cor
 fn void drain_dirty(
     gpu::Commands*           cmd,
     voxel::GenerateContext*  gen,
-    voxel::JumpFloodContext* jfa,
     voxel::RayMarchContext*  rm,
     voxel::VolumeRing*       ring,
-    voxel::DistanceField*    df,
     world::BlockPool*        blocks,
     world::HolderPool*       holders,
     world::PagePool*         pages,
