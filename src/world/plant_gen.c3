@@ -272,6 +272,11 @@ fn void plant_grow_tree(
     flatten_tree(scratch, out, rules.branch_material, rules.leaf_material);
 }
 
+// Max leaf sphere radius across all plant variants — used to inset tree
+// placement from page edges so leaf spheres never clip against the
+// neighbouring page (which doesn't see this page's tree entries).
+const float TREE_EDGE_MARGIN = 24.0f;
+
 fn void plant_generate_page(
     PageGeometry*  out,
     Page*          page,
@@ -283,12 +288,17 @@ fn void plant_generate_page(
     uint base_h = voxel::voronoi_hash(px, pz, world_seed, 0u);
     int count = 3 + (int)((base_h >> 24) & 0x5u);   // 3..8 directly
 
+    float page_min_x = page.world_min.x + TREE_EDGE_MARGIN;
+    float page_max_x = page.world_max.x - TREE_EDGE_MARGIN;
+    float page_min_z = page.world_min.z + TREE_EDGE_MARGIN;
+    float page_max_z = page.world_max.z - TREE_EDGE_MARGIN;
+
     for (int i = 0; i < count; i++) {
         uint pos_h = voxel::voronoi_hash(px, pz, world_seed, (uint)(i + 1));
         float fx = (float)(pos_h & 0xFFFFu) / 65535.0f;
         float fz = (float)((pos_h >> 16) & 0xFFFFu) / 65535.0f;
-        float wx = page.world_min.x + fx * (page.world_max.x - page.world_min.x);
-        float wz = page.world_min.z + fz * (page.world_max.z - page.world_min.z);
+        float wx = page_min_x + fx * (page_max_x - page_min_x);
+        float wz = page_min_z + fz * (page_max_z - page_min_z);
         float wy = heightmap_sample_at(wx, wz);
         if (wy < WATER_LEVEL_Y) continue;
 
