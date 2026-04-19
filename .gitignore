@@ -3,3 +3,4 @@ out/
 docs/superpowers/*
 .claude/settings.local.json
 .bridge/errors.log
+src/shaders/*.spv
