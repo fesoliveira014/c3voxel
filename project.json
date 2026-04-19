@@ -14,6 +14,25 @@
       "type": "executable",
       "target" : "windows-x64",
       "name": "c3voxel",
+      "features": ["HOT_RELOAD"],
+      "linked-libraries": [
+        "glfw3",
+        "gdi32",
+        "user32",
+        "shell32",
+        "kernel32",
+        "opengl32"
+      ],
+      "link-args": [
+        "/LIBPATH:C:\\glfw-3.4\\lib-vc2022"
+      ]
+    },
+    "windows-release": {
+      "type": "executable",
+      "target" : "windows-x64",
+      "name": "c3voxel",
+      "features": [],
+      "opt": "O3",
       "linked-libraries": [
         "glfw3",
         "gdi32",
@@ -29,7 +48,15 @@
     "linux": {
       "type": "executable",
       "name": "c3voxel",
-      "target": "linux-x64"
+      "target": "linux-x64",
+      "features": ["HOT_RELOAD"]
+    },
+    "linux-release": {
+      "type": "executable",
+      "name": "c3voxel",
+      "target": "linux-x64",
+      "features": [],
+      "opt": "O3"
     }
   },
   "cpu": "generic",

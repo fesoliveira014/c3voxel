@@ -125,6 +125,9 @@ fn uint shader_program(Shader s) @inline @private
 
 fn bool shader_reload_if_changed(Shader s)
 {
+$if !$feature(HOT_RELOAD):
+    return false;
+$else
     ShaderSlot* slot = slot_of(s);
     if (slot == null || slot.program == 0) return false;
 
@@ -148,6 +151,7 @@ fn bool shader_reload_if_changed(Shader s)
     if (saved != 0) gl::deleteProgram(saved);
     io::printfn("[shader] reloaded");
     return true;
+$endif
 }
 
 fn ShaderSlot* slot_of(Shader s) @local
