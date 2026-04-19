@@ -30,15 +30,21 @@ layout by hand and guard it with `$assert`.
 
 ## Promotion Path
 
-This doc + `$assert` is deliberately minimal. Four UBOs today
+This doc + `$assert` is deliberately minimal. Five UBOs today
 (`GenerateUniforms`, `RayMarchUniforms`, `CompositeUniforms`,
-`DistanceFieldStepUniforms`). If a fifth lands, promote to a macro:
+`DistanceFieldStepUniforms`, `VoronoiParams`). If a sixth lands,
+promote to a macro:
 
 ```c3
 macro @std140(#s) { ... }   // walks fields, emits per-field offset asserts
 ```
 
 That buys per-field alignment guarantees instead of just total-size.
+The fifth UBO (`VoronoiParams`, M7.1) is a trivial `Vec4[27]`
+container — it doesn't exercise the alignment corner cases the
+macro would guard, so deferring the macro until a 6th UBO with
+non-trivial layout appeared was preferable to adding metaprogramming
+on its own.
 
 ## Checklist for a New UBO
 

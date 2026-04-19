@@ -43,10 +43,12 @@ fn VoronoiParams voronoi_for_page(world::Page* page)
     core::Vec3 cell = { size.x / 3.0f, size.y / 3.0f, size.z / 3.0f };
     core::Vec3 perturb = { cell.x * 0.4f, cell.y * 0.4f, cell.z * 0.4f };
 
-    // Coordinate hash seed: derive from page.world_min (integer-stable).
-    uint px = (uint)(int)page.world_min.x;
-    uint py = (uint)(int)page.world_min.y;
-    uint pz = (uint)(int)page.world_min.z;
+    // Coordinate hash seed: derive from integer page coords directly — avoids
+    // float-precision collisions that could occur at large world offsets
+    // (>2^23) if we truncated world_min.x back to int.
+    uint px = (uint)(int)page.px;
+    uint py = 0u;
+    uint pz = (uint)(int)page.pz;
 
     int idx = 0;
     for (int cz = 0; cz < 3; cz++) {
