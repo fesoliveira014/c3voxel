@@ -1,0 +1,6 @@
+{
+  "session_id": "c3voxel",
+  "broker_url": "http://127.0.0.1:7891",
+  "target_project": "vault",
+  "docs_glob": ["docs/**/*.md", "*.md"]
+}

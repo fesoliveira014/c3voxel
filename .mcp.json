@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "bridge": {
+      "type": "http",
+      "url": "http://127.0.0.1:7891/mcp",
+      "headers": {
+        "X-Bridge-Session": "c3voxel"
+      }
+    }
+  }
+}

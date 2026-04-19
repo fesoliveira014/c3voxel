@@ -1,0 +1,24 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "TaskCreate",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".bridge/hooks/claude-task-create.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "TaskUpdate",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".bridge/hooks/claude-task-update.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
