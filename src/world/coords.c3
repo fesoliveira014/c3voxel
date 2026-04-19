@@ -1,9 +1,10 @@
 module c3voxel::world;
 
-const int PIXELS_PER_PAGE   = 128;
-const int PAGES_PER_HOLDER  = 2;
-const int HOLDERS_PER_BLOCK = 8;
-const int VOLUME_PITCH      = 128;
+const int PIXELS_PER_PAGE        = 128;
+const int PAGES_PER_HOLDER       = 2;
+const int HOLDERS_PER_BLOCK      = 8;
+const int VOLUME_PITCH           = 128;
+const int ACTIVE_HOLDERS_PER_AXIS = 2;
 
 typedef WorldPixel  = inline int;
 typedef Meter       = inline float;
