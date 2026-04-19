@@ -181,53 +181,67 @@ void main()
     float h_w   = h01 * MAX_HEIGHT;
     vec4  result = terrain_color(h01, world.y, h_w);
 
-    // 2. Nearest-match across all three typed arrays with shared tracker.
-    //
-    // VQ's original wraps this in an outer material-pass loop; we collapse
-    // into one pass because the M7.1 smoke has one entry per cell. Reinstate
-    // the material-pass outer loop when layered materials (mortar between
-    // bricks, etc.) land in M7.4.
-    float best_dis      = 1e30;
-    float next_best_dis = 1e30;
-    int   best_idx  = -1;
-    int   best_type = -1;
+    // 2. Trees: iterate all entries with branch-priority-over-leaf precedence.
+    // Nearest-match on center_point doesn't work for trees because child
+    // leaf-sphere centers often sit closer to trunk voxels than the trunk
+    // entry itself, hiding trunks behind leaves. Iterate + test each shape.
+    vec4 tree_color = vec4(0.0);
+    bool tree_branch_hit = false;
+    for (int i = 0; i < entry_counts.y; i++) {
+        TreeEntry e = tree[i];
+        if (!aabb_contains(world, e.vis_min.xyz, e.vis_max.xyz)) continue;
+        vec3 p0 = e.p0.xyz;
+        vec3 p1 = e.p1.xyz;
+        vec3 p2 = e.p2.xyz;
+        float beg_t       = e.thick_vals.x;
+        float end_t       = e.thick_vals.y;
+        float sph         = e.thick_vals.z;
+        int   leaf_mat_id = int(e.thick_vals.w);
 
+        vec3  chord    = p2 - p0;
+        float chord_sq = max(dot(chord, chord), 1e-6);
+        float t        = clamp(dot(world - p0, chord) / chord_sq, 0.0, 1.0);
+        float omt      = 1.0 - t;
+        vec3  on_bezier = omt * omt * p0 + 2.0 * omt * t * p1 + t * t * p2;
+        float d_branch  = distance(world, on_bezier);
+        float thickness = mix(beg_t, end_t, t);
+
+        if (d_branch < thickness) {
+            tree_color = material_color(int(e.mat.x));
+            tree_branch_hit = true;
+            break;    // branch wins; stop scanning
+        }
+        if (!tree_branch_hit && sph > 0.0 && distance(world, p2) < sph) {
+            tree_color = material_color(leaf_mat_id);
+            // keep scanning — later entry's branch may still override
+        }
+    }
+
+    // 3. Geometry (buildings): nearest-match across GeomEntry.
+    float best_dis  = 1e30;
+    int   best_geom = -1;
     for (int i = 0; i < entry_counts.x; i++) {
         GeomEntry e = geom[i];
         if (!aabb_contains(world, e.vis_min.xyz, e.vis_max.xyz)) continue;
         float d = distance(world, e.center_point.xyz);
-        if (d < best_dis)      { next_best_dis = best_dis; best_dis = d; best_idx = i; best_type = 0; }
-        else if (d < next_best_dis) { next_best_dis = d; }
+        if (d < best_dis) { best_dis = d; best_geom = i; }
     }
-    for (int i = 0; i < entry_counts.y; i++) {
-        TreeEntry e = tree[i];
-        if (!aabb_contains(world, e.vis_min.xyz, e.vis_max.xyz)) continue;
-        float d = distance(world, e.center_point.xyz);
-        if (d < best_dis)      { next_best_dis = best_dis; best_dis = d; best_idx = i; best_type = 1; }
-        else if (d < next_best_dis) { next_best_dis = d; }
-    }
-    for (int i = 0; i < entry_counts.z; i++) {
-        LineEntry e = line[i];
-        if (!aabb_contains(world, e.vis_min.xyz, e.vis_max.xyz)) continue;
-        float d = distance(world, e.center_point.xyz);
-        if (d < best_dis)      { next_best_dis = best_dis; best_dis = d; best_idx = i; best_type = 2; }
-        else if (d < next_best_dis) { next_best_dis = d; }
+    vec4 geom_color = vec4(0.0);
+    if (best_geom >= 0) {
+        geom_color = eval_geom(world, geom[best_geom]);
     }
 
-    // 3. Evaluate closest entry's shape.
-    if (best_type == 0) {
-        vec4 c = eval_geom(world, geom[best_idx]);
-        if (c.a > 0.0) result = c;
-    } else if (best_type == 1) {
-        vec4 c = eval_tree(world, tree[best_idx]);
-        if (c.a > 0.0) result = c;
-    } else if (best_type == 2) {
-        vec4 c = eval_line(world, line[best_idx]);
-        if (c.a > 0.0) result = c;
+    // 4. Composite: geometry wins over trees (buildings occlude); trees over
+    // terrain. Voronoi modulation applies to whichever entry painted.
+    bool hit = false;
+    if (geom_color.a > 0.0) {
+        result = geom_color;
+        hit = true;
+    } else if (tree_color.a > 0.0) {
+        result = tree_color;
+        hit = true;
     }
-
-    // 4. Voronoi modulation when an entry was hit.
-    if (best_type >= 0 && result.a > 0.0) {
+    if (hit) {
         float g = voronoi_grad(world);
         result.rgb *= mix(0.85, 1.00, g);
     }
