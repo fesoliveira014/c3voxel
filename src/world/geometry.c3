@@ -66,9 +66,12 @@ fn void geometry_generate_smoke_test(PageGeometry* out, Page* page)
     core::Vec3 pmax = { page.world_max.x, page.world_max.y, page.world_max.z };
     core::Vec3 size = { pmax.x - pmin.x, pmax.y - pmin.y, pmax.z - pmin.z };
     core::Vec3 cell = { size.x / 3.0f, size.y / 3.0f, size.z / 3.0f };
-    float half_extent = cell.x * 0.35f;   // box fills ~70% of a cell
-    float surface_y   = pmin.y + size.y * 0.25f;
-    float box_half_y  = size.y * 0.08f;
+    // Smoke test: boxes span the full Y range of the page so they're always
+    // visible regardless of heightmap. Real post-M7.4 consumers will use
+    // terrain-aware placement.
+    float half_extent = cell.x * 0.25f;       // narrow enough that 9 boxes read as a grid
+    float surface_y   = pmin.y + size.y * 0.5f;
+    float box_half_y  = size.y * 0.5f;         // full height — overwrites terrain where inside
 
     for (int iz = 0; iz < 3; iz++) {
         for (int ix = 0; ix < 3; ix++) {

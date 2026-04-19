@@ -108,12 +108,12 @@ fn int main(String[] args)
 
         if (mouse.scroll_steps != 0) {
             if (mouse.scroll_steps > 0) {
-                if (zoom_scale < 1.75f) zoom_scale *= 2.0f;
+                zoom_scale *= 1.4f;
             } else {
-                if (zoom_scale > 0.75f) zoom_scale *= 0.5f;
+                zoom_scale *= 0.714f;   // 1/1.4
             }
-            if (zoom_scale < 0.5f) zoom_scale = 0.5f;
-            if (zoom_scale > 2.0f) zoom_scale = 2.0f;
+            if (zoom_scale < 0.25f) zoom_scale = 0.25f;
+            if (zoom_scale > 16.0f) zoom_scale = 16.0f;
         }
 
         if (clock.frame % RELOAD_CHECK_INTERVAL == 0) {
