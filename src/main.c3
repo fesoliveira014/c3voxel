@@ -221,6 +221,28 @@ fn void compute_holder_screen_rect(world::Holder* h, core::Vec3 pan_target, floa
     *out_max = { max_x + half_w, max_y + half_h, 0.0f, 0.0f };
 }
 
+fn usz pick_next_dirty(world::DirtyQueue* dirty, world::HolderPool* holders, core::Vec3 pan_target, uint current_frame) @local
+{
+    usz best_idx  = 0;
+    float best_d  = 1e30f;
+    int   best_age = 0;
+    for (usz i = 0; i < dirty.len(); i++) {
+        world::DirtyEntry e = (*dirty)[i];
+        world::Holder* h = holders.get(e.id);
+        if (h == null) continue;
+        int age = (int)(current_frame - e.enqueue_frame);
+        float d = world::holder_distance_sq(h, pan_target);
+        float effective_d = d;
+        if (age >= world::FRAME_STARVATION_CAP) effective_d = 0.0f;
+        if (effective_d < best_d || (effective_d == best_d && age > best_age)) {
+            best_d   = effective_d;
+            best_idx = i;
+            best_age = age;
+        }
+    }
+    return best_idx;
+}
+
 fn void drain_dirty(
     gpu::Commands*           cmd,
     voxel::GenerateContext*  gen,
@@ -238,15 +260,16 @@ fn void drain_dirty(
 {
     int done = 0;
     while (done < budget && dirty.len() > 0) {
-        world::DirtyEntry entry = dirty.first()!!;
-        dirty.remove_at(0);
+        usz idx = pick_next_dirty(dirty, holders, pan_target, pool.current_frame);
+        world::DirtyEntry entry = (*dirty)[idx];
+        dirty.remove_at(idx);
         world::Holder* holder = holders.get(entry.id);
         if (holder == null) continue;
         world::Block* block = blocks.get(holder.block_id);
         if (block == null) continue;
 
         if (block.heightmap_dirty) {
-            world::generate_heightmap_cpu(mem, block, 1337u + (uint)((int)block.cx * 131 + (int)block.cz));
+            world::generate_heightmap_cpu(mem, block, 1337u);
         }
 
         float block_origin_x = (float)(int)block.cx * (float)world::BLOCK_HEIGHTMAP_PIXELS;
