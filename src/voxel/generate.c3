@@ -17,7 +17,7 @@ struct GenerateContext {
 fn void? GenerateContext.init(&self, Allocator allocator)
 {
     gpu::ShaderStageSpec[1] specs = {
-        { gpu::ShaderStageKind.COMPUTE, "src/shaders/generate.comp.glsl" },
+        { gpu::ShaderStageKind.COMPUTE, "resources/shaders/generate.comp.glsl" },
     };
     self.shader = gpu::shader_load(allocator, specs[..])!;
     self.ubo    = gpu::buffer_create(GenerateUniforms.sizeof, gpu::BufferUsage.DYNAMIC);

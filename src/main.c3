@@ -9,8 +9,8 @@ import c3voxel::platform;
 import c3voxel::gpu;
 import c3voxel::voxel;
 
-const String VS_PATH = "src/shaders/fullscreen.vert.glsl";
-const String FS_PATH = "src/shaders/fullscreen.frag.glsl";
+const String VS_PATH = "resources/shaders/fullscreen.vert.glsl";
+const String FS_PATH = "resources/shaders/fullscreen.frag.glsl";
 
 const ulong RELOAD_CHECK_INTERVAL = 30;
 

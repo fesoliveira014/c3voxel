@@ -2,6 +2,7 @@ module c3voxel::gpu;
 
 import std::io;
 import std::io::file;
+import std::io::path;
 import std::os::process;
 import std::core::mem::alloc;
 import std::time;
@@ -21,9 +22,10 @@ faultdef
 typedef Shader = inline uint;
 const Shader SHADER_INVALID = (Shader)core::HANDLE_INVALID_VALUE;
 
-const usz MAX_SHADERS = 64;
-const usz MAX_SHADER_STAGES = 8;
-const String SPV_SUFFIX = ".spv";
+const usz    MAX_SHADERS        = 64;
+const usz    MAX_SHADER_STAGES  = 8;
+const String SPV_SUFFIX         = ".spv";
+const String SHADER_BUILD_DIR   = "resources/shaders/build";
 
 enum ShaderStageKind : char {
     VERTEX,
@@ -91,7 +93,7 @@ fn Shader? shader_load(Allocator allocator, ShaderStageSpec[] specs)
     for (usz i = 0; i < specs.len; i++) {
         slot.stages[i].kind      = specs[i].kind;
         slot.stages[i].glsl_path = specs[i].glsl_path;
-        slot.stages[i].spv_path  = string::format(allocator, "%s%s", specs[i].glsl_path, SPV_SUFFIX);
+        slot.stages[i].spv_path  = string::format(allocator, "%s/%s%s", SHADER_BUILD_DIR, basename_of(specs[i].glsl_path), SPV_SUFFIX);
         slot.stages[i].mtime     = (time::Time)0;
     }
 
@@ -250,6 +252,12 @@ fn uint? compile_stage(ShaderStage* s) @private
 
 fn void? run_glslc(ShaderStage* s) @private
 {
+    if (catch err = path::mkdir(SHADER_BUILD_DIR, recursive: true)) {
+        // non-fatal: mkdir of an existing dir reports as a fault on some
+        // platforms, and run_glslc surfaces the real error next.
+        (void)err;
+    }
+
     String flag_arg = string::tformat("-fshader-stage=%s", stage_flag(s.kind));
     String[6] argv = { "glslc", "--target-env=opengl", flag_arg, s.glsl_path, "-o", s.spv_path };
     int? code = process::run(argv[..], process::SpawnOptions.INHERIT_STDIO);
@@ -261,4 +269,11 @@ fn void? run_glslc(ShaderStage* s) @private
         io::eprintfn("[shader] glslc exit %d on %s", code, s.glsl_path);
         return GLSLC_FAILED~;
     }
+}
+
+fn String basename_of(String p) @local
+{
+    usz i = p.len;
+    while (i > 0 && p[i - 1] != '/' && p[i - 1] != '\\') i--;
+    return p[i..];
 }

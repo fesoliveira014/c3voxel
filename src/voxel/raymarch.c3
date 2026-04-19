@@ -22,7 +22,7 @@ struct RayMarchContext {
 fn void? RayMarchContext.init(&self, Allocator allocator, int w, int h)
 {
     gpu::ShaderStageSpec[1] specs = {
-        { gpu::ShaderStageKind.COMPUTE, "src/shaders/raymarch.comp.glsl" },
+        { gpu::ShaderStageKind.COMPUTE, "resources/shaders/raymarch.comp.glsl" },
     };
     self.shader   = gpu::shader_load(allocator, specs[..])!;
     self.ubo      = gpu::buffer_create(RayMarchUniforms.sizeof, gpu::BufferUsage.DYNAMIC);
