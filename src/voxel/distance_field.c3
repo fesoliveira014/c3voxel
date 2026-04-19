@@ -5,11 +5,15 @@ import c3voxel::gpu;
 const int DF_PITCH    = 32;
 const int CELL_VOXELS = 4;
 
+// std140 layout — see docs/ubo-convention.md.
+// Promotion path: if a 5th UBO appears, convert to an @std140 macro that
+// walks fields and emits per-field offset asserts automatically.
 struct DistanceFieldStepUniforms @packed @align(16) {
     int    step;
     int    df_pitch;
     int[2] _pad;
 }
+$assert(DistanceFieldStepUniforms.sizeof % 16 == 0);
 
 struct DistanceField {
     gpu::Texture3D[2] tex;

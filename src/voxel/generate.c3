@@ -4,6 +4,9 @@ import c3voxel::core;
 import c3voxel::gpu;
 import c3voxel::world;
 
+// std140 layout — see docs/ubo-convention.md.
+// Promotion path: if a 5th UBO appears, convert to an @std140 macro that
+// walks fields and emits per-field offset asserts automatically.
 struct GenerateUniforms @packed @align(16) {
     core::Vec4    world_min;
     core::Vec4    world_max;
@@ -12,6 +15,7 @@ struct GenerateUniforms @packed @align(16) {
     core::Seconds time;
     float[3]      _pad;
 }
+$assert(GenerateUniforms.sizeof % 16 == 0);
 
 struct GenerateContext {
     gpu::Shader shader;

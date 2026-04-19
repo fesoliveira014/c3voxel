@@ -4,6 +4,9 @@ import c3voxel::core;
 import c3voxel::gpu;
 import c3voxel::world;
 
+// std140 layout — see docs/ubo-convention.md.
+// Promotion path: if a 5th UBO appears, convert to an @std140 macro that
+// walks fields and emits per-field offset asserts automatically.
 struct RayMarchUniforms @packed @align(16) {
     core::Vec4  camera_pos;
     core::Vec4  camera_forward;
@@ -19,6 +22,7 @@ struct RayMarchUniforms @packed @align(16) {
     float       half_extent_y;
     float[2]    _pad;
 }
+$assert(RayMarchUniforms.sizeof % 16 == 0);
 
 struct View {
     core::Vec4 position;

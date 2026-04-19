@@ -6,12 +6,16 @@ import c3voxel::world;
 
 const int MAX_COMPOSITE_HOLDERS = 16;
 
+// std140 layout — see docs/ubo-convention.md.
+// Promotion path: if a 5th UBO appears, convert to an @std140 macro that
+// walks fields and emits per-field offset asserts automatically.
 struct CompositeUniforms @packed @align(16) {
     core::Vec4[MAX_COMPOSITE_HOLDERS] screen_min;
     core::Vec4[MAX_COMPOSITE_HOLDERS] screen_max;
     core::IVec4                       screen_size;
     core::IVec4                       alive_bits;
 }
+$assert(CompositeUniforms.sizeof % 16 == 0);
 
 struct CompositeContext {
     gpu::Shader shader;
