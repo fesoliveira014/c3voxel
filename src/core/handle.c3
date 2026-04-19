@@ -1,5 +1,7 @@
 module c3voxel::core;
 
+typedef Handle = inline uint;
+
 const uint HANDLE_INDEX_MASK    = 0x00FF_FFFF;
 const uint HANDLE_GEN_MASK      = 0xFF;
 const uint HANDLE_INVALID_VALUE = 0xFFFF_FFFF;
