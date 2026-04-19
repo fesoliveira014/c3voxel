@@ -138,8 +138,36 @@ vec4 eval_geom(vec3 w, GeomEntry e)
     return col;
 }
 
-vec4 eval_tree(vec3 w, TreeEntry e) { return vec4(1.0, 0.0, 1.0, 1.0); }    // M7.2 stub
-vec4 eval_line(vec3 w, LineEntry e) { return vec4(1.0, 0.0, 1.0, 1.0); }     // M7.2+ stub
+vec4 eval_tree(vec3 w, TreeEntry e)
+{
+    vec3 p0 = e.p0.xyz;
+    vec3 p1 = e.p1.xyz;
+    vec3 p2 = e.p2.xyz;
+    float beg_t       = e.thick_vals.x;
+    float end_t       = e.thick_vals.y;
+    float sph         = e.thick_vals.z;
+    int   leaf_mat_id = int(e.thick_vals.w);
+
+    // VQ tangent-line approximation: project onto the P0->P2 chord to estimate t,
+    // evaluate the Bezier at that t, use Euclidean distance.
+    vec3  chord    = p2 - p0;
+    float chord_sq = max(dot(chord, chord), 1e-6);
+    float t        = clamp(dot(w - p0, chord) / chord_sq, 0.0, 1.0);
+    float omt      = 1.0 - t;
+    vec3  on_bezier = omt * omt * p0 + 2.0 * omt * t * p1 + t * t * p2;
+    float d_branch  = distance(w, on_bezier);
+    float thickness = mix(beg_t, end_t, t);
+
+    if (d_branch < thickness) {
+        return material_color(int(e.mat.x));
+    }
+    if (sph > 0.0 && distance(w, p2) < sph) {
+        return material_color(leaf_mat_id);
+    }
+    return vec4(0.0);
+}
+
+vec4 eval_line(vec3 w, LineEntry e) { return vec4(1.0, 0.0, 1.0, 1.0); }     // M7.4 stub
 
 void main()
 {
