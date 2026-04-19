@@ -1,6 +1,7 @@
 module c3voxel::voxel;
 
 import c3voxel::core;
+import c3voxel::game;
 import c3voxel::gpu;
 import c3voxel::world;
 
@@ -8,126 +9,90 @@ import c3voxel::world;
 // Promotion path: if a 5th UBO appears, convert to an @std140 macro that
 // walks fields and emits per-field offset asserts automatically.
 struct RayMarchUniforms @packed @align(16) {
-    core::Vec4  camera_pos;
-    core::Vec4  camera_forward;
-    core::Vec4  camera_right;
-    core::Vec4  camera_up;
-    core::Vec4  world_min;
-    core::Vec4  world_max;
-    core::IVec4 resolution;
-    core::IVec4 pitches;
-    core::IVec4 page_pixels;
-    core::IVec4 write_offset;
-    float       half_extent_x;
-    float       half_extent_y;
-    float[2]    _pad;
+    core::Vec4    holder_center;             // (cx, 0, cz, 0)
+    core::Vec4    iso_bbox;                  // (sx_min, sy_min, sx_max, sy_max)
+    core::Vec4[4] page_world_min;
+    core::Vec4[4] page_world_max;
+    core::IVec4   resolution;                // fbo_w, fbo_h, volume_pitch, 0
+    core::IVec4   page_valid_mask;           // bit i: page i resident
+    float         iso_tilt;
+    float         volume_max_y;
+    float         voxel_len;
+    float         _pad0;
 }
 $assert(RayMarchUniforms.sizeof % 16 == 0);
 
-struct View {
-    core::Vec4 position;
-    core::Vec4 forward;
-    core::Vec4 right;
-    core::Vec4 up;
-    float      half_extent_x;
-    float      half_extent_y;
-}
-
 struct RayMarchContext {
-    gpu::Shader    shader;
-    gpu::Buffer    ubo;
-    gpu::Texture2D target;
-    gpu::Texture2D height_target;
-    gpu::Pixel   target_w;
-    gpu::Pixel   target_h;
+    gpu::Shader shader;
+    gpu::Buffer ubo;
 }
 
-fn void? RayMarchContext.init(&self, Allocator allocator, gpu::Pixel w, gpu::Pixel h)
+fn void? RayMarchContext.init(&self, Allocator allocator)
 {
     gpu::ShaderStageSpec[1] specs = {
         { gpu::ShaderStageKind.COMPUTE, "resources/shaders/raymarch.comp.glsl" },
     };
-    self.shader        = gpu::shader_load(allocator, specs[..])!;
-    self.ubo           = gpu::buffer_create(RayMarchUniforms.sizeof, gpu::BufferUsage.DYNAMIC);
-    self.target        = gpu::texture2d_create({ .width = w, .height = h, .fmt = gpu::Format.RGBA8, .levels = 1 });
-    self.height_target = gpu::texture2d_create({ .width = w, .height = h, .fmt = gpu::Format.R16F,  .levels = 1 });
-    self.target_w      = w;
-    self.target_h      = h;
+    self.shader = gpu::shader_load(allocator, specs[..])!;
+    self.ubo    = gpu::buffer_create(RayMarchUniforms.sizeof, gpu::BufferUsage.DYNAMIC);
 }
 
 fn void RayMarchContext.destroy(&self)
 {
     gpu::shader_destroy(self.shader);
     gpu::buffer_destroy(self.ubo);
-    gpu::texture2d_destroy(self.target);
-    gpu::texture2d_destroy(self.height_target);
-    self.shader        = gpu::SHADER_INVALID;
-    self.ubo           = gpu::BUFFER_INVALID;
-    self.target        = gpu::TEXTURE2D_INVALID;
-    self.height_target = gpu::TEXTURE2D_INVALID;
-    self.target_w      = 0;
-    self.target_h      = 0;
+    self.shader = gpu::SHADER_INVALID;
+    self.ubo    = gpu::BUFFER_INVALID;
 }
 
-fn void RayMarchContext.resize(&self, gpu::Pixel w, gpu::Pixel h)
+fn void RayMarchContext.dispatch_holder(
+    &self,
+    gpu::Commands*    cmd,
+    gpu::Texture3D[4] page_volumes,
+    world::Holder*    h,
+    world::Page*[4]   pages,
+    gpu::Framebuffer* holder_fbo,
+    core::IVec4       page_valid_mask)
 {
-    if (w <= 0 || h <= 0) return;
-    if (w == self.target_w && h == self.target_h) return;
-    gpu::texture2d_destroy(self.target);
-    gpu::texture2d_destroy(self.height_target);
-    self.target        = gpu::texture2d_create({ .width = w, .height = h, .fmt = gpu::Format.RGBA8, .levels = 1 });
-    self.height_target = gpu::texture2d_create({ .width = w, .height = h, .fmt = gpu::Format.R16F,  .levels = 1 });
-    self.target_w      = w;
-    self.target_h      = h;
-}
+    float extent    = (float)world::HOLDER_WORLD_EXTENT;
+    float vol_max_y = (float)world::VOLUME_PITCH;
+    float tilt      = game::ISO_TILT;
+    float cx        = (float)(int)h.hx * extent + extent * 0.5f;
+    float cz        = (float)(int)h.hz * extent + extent * 0.5f;
 
-fn void RayMarchContext.dispatch(&self, gpu::Commands* cmd, Volume* v, DistanceField* df, View view)
-{
-    core::Vec4 wmin = { -1.0f, -1.0f, -1.0f, 0.0f };
-    core::Vec4 wmax = {  1.0f,  1.0f,  1.0f, 0.0f };
-    self.dispatch_raw(cmd, v.tex, df, view, wmin, wmax, self.target, self.height_target, self.target_w, self.target_h, { 0, 0 }, { self.target_w, self.target_h });
-}
-
-fn void RayMarchContext.dispatch_into(&self, gpu::Commands* cmd, VolumeRing* ring, int slot, DistanceField* df, world::Page* page, gpu::Framebuffer* holder_fbo, core::IVec2 write_offset)
-{
-    View v = {
-        .position      = { (page.world_min.x + page.world_max.x) * 0.5f, page.world_max.y + 1.0f, (page.world_min.z + page.world_max.z) * 0.5f, 0.0f },
-        .forward       = { 0.0f, -1.0f, 0.0f, 0.0f },
-        .right         = { 1.0f,  0.0f, 0.0f, 0.0f },
-        .up            = { 0.0f,  0.0f, 1.0f, 0.0f },
-        .half_extent_x = (page.world_max.x - page.world_min.x) * 0.5f,
-        .half_extent_y = (page.world_max.z - page.world_min.z) * 0.5f,
-    };
-    self.dispatch_raw(cmd, ring.slot(slot), df, v, page.world_min, page.world_max, holder_fbo.colors[0], holder_fbo.colors[1], holder_fbo.width, holder_fbo.height, write_offset, { world::PIXELS_PER_PAGE, world::PIXELS_PER_PAGE });
-}
-
-fn void RayMarchContext.dispatch_raw(&self, gpu::Commands* cmd, gpu::Texture3D volume, DistanceField* df, View view, core::Vec4 world_min, core::Vec4 world_max, gpu::Texture2D color_out, gpu::Texture2D height_out, gpu::Pixel out_w, gpu::Pixel out_h, core::IVec2 write_offset, core::IVec2 page_pixels)
-{
     RayMarchUniforms u = {
-        .camera_pos     = view.position,
-        .camera_forward = view.forward,
-        .camera_right   = view.right,
-        .camera_up      = view.up,
-        .world_min      = world_min,
-        .world_max      = world_max,
-        .resolution     = { (int)out_w, (int)out_h, 0, 0 },
-        .pitches        = { world::VOLUME_PITCH, DF_PITCH, CELL_VOXELS, 0 },
-        .page_pixels    = { page_pixels.x, page_pixels.y, 0, 0 },
-        .write_offset   = { write_offset.x, write_offset.y, 0, 0 },
-        .half_extent_x  = view.half_extent_x,
-        .half_extent_y  = view.half_extent_y,
+        .holder_center   = { cx, 0.0f, cz, 0.0f },
+        .iso_bbox        = { -extent, -tilt * extent - vol_max_y, extent, tilt * extent },
+        .page_world_min  = {
+            pages[0] != null ? pages[0].world_min : (core::Vec4){ 0.0f, 0.0f, 0.0f, 0.0f },
+            pages[1] != null ? pages[1].world_min : (core::Vec4){ 0.0f, 0.0f, 0.0f, 0.0f },
+            pages[2] != null ? pages[2].world_min : (core::Vec4){ 0.0f, 0.0f, 0.0f, 0.0f },
+            pages[3] != null ? pages[3].world_min : (core::Vec4){ 0.0f, 0.0f, 0.0f, 0.0f },
+        },
+        .page_world_max  = {
+            pages[0] != null ? pages[0].world_max : (core::Vec4){ 0.0f, 0.0f, 0.0f, 0.0f },
+            pages[1] != null ? pages[1].world_max : (core::Vec4){ 0.0f, 0.0f, 0.0f, 0.0f },
+            pages[2] != null ? pages[2].world_max : (core::Vec4){ 0.0f, 0.0f, 0.0f, 0.0f },
+            pages[3] != null ? pages[3].world_max : (core::Vec4){ 0.0f, 0.0f, 0.0f, 0.0f },
+        },
+        .resolution      = { (int)holder_fbo.width, (int)holder_fbo.height, world::VOLUME_PITCH, 0 },
+        .page_valid_mask = page_valid_mask,
+        .iso_tilt        = tilt,
+        .volume_max_y    = vol_max_y,
+        .voxel_len       = (float)world::PIXELS_PER_PAGE / (float)world::VOLUME_PITCH,
     };
     gpu::buffer_upload(self.ubo, &u, 0, RayMarchUniforms.sizeof);
 
     cmd.bind_shader(self.shader);
-    cmd.bind_texture(0, volume);
-    cmd.bind_texture(1, df.sampled());
-    cmd.bind_image_2d(2, color_out,  gpu::Access.WRITE_ONLY);
-    cmd.bind_image_2d(3, height_out, gpu::Access.WRITE_ONLY);
-    cmd.bind_ubo(4, self.ubo, 0, RayMarchUniforms.sizeof);
+    cmd.bind_texture(0, page_volumes[0]);
+    cmd.bind_texture(1, page_volumes[1]);
+    cmd.bind_texture(2, page_volumes[2]);
+    cmd.bind_texture(3, page_volumes[3]);
+    cmd.bind_image_2d(4, holder_fbo.colors[0], gpu::Access.WRITE_ONLY);
+    cmd.bind_image_2d(5, holder_fbo.colors[1], gpu::Access.WRITE_ONLY);
+    cmd.bind_ubo(7, self.ubo, 0, RayMarchUniforms.sizeof);
 
-    int gx = (page_pixels.x + 7) / 8;
-    int gy = (page_pixels.y + 7) / 8;
+    int gx = ((int)holder_fbo.width  + 7) / 8;
+    int gy = ((int)holder_fbo.height + 7) / 8;
     cmd.dispatch(gx, gy, 1);
     cmd.barrier(gpu::BarrierType.IMAGE_TO_TEXTURE);
 }

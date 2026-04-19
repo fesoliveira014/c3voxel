@@ -57,7 +57,7 @@ fn int main(String[] args)
     defer jfa.destroy();
 
     voxel::RayMarchContext rm;
-    if (catch err = rm.init(mem, win.fb_width, win.fb_height)) {
+    if (catch err = rm.init(mem)) {
         io::eprintfn("Failed to load raymarch shader: %s", err);
         return 1;
     }
@@ -299,6 +299,13 @@ fn void drain_dirty(
         core::Vec4 block_origin = { block_origin_x, 0.0f, block_origin_z, 0.0f };
         core::Vec4 block_extent = { (float)world::BLOCK_HEIGHTMAP_PIXELS, (float)world::VOLUME_PITCH, (float)world::BLOCK_HEIGHTMAP_PIXELS, 0.0f };
 
+        gpu::Texture3D[4] page_vols = {
+            gpu::TEXTURE3D_INVALID, gpu::TEXTURE3D_INVALID,
+            gpu::TEXTURE3D_INVALID, gpu::TEXTURE3D_INVALID,
+        };
+        world::Page*[4] page_ptrs = { null, null, null, null };
+        core::IVec4 valid_mask = { 0, 0, 0, 0 };
+
         for (int lz = 0; lz < world::PAGES_PER_HOLDER; lz++) {
             for (int lx = 0; lx < world::PAGES_PER_HOLDER; lx++) {
                 int ph = lz * world::PAGES_PER_HOLDER + lx;
@@ -306,11 +313,14 @@ fn void drain_dirty(
                 if (page == null) continue;
                 int slot = ring.next();
                 gen.dispatch_page(cmd, ring, slot, page, block.heightmap, block_origin, block_extent, (core::Seconds)0.0f);
-                voxel::Volume tmp_vol = { .tex = ring.slot(slot) };
-                jfa.build(cmd, &tmp_vol, df);
-                core::IVec2 write_offset = { lx * world::PIXELS_PER_PAGE, lz * world::PIXELS_PER_PAGE };
-                rm.dispatch_into(cmd, ring, slot, df, page, &holder.fbo_layer0, write_offset);
+                page_vols[ph]  = ring.slot(slot);
+                page_ptrs[ph]  = page;
+                valid_mask.x |= (1 << ph);
             }
+        }
+
+        if (valid_mask.x != 0) {
+            rm.dispatch_holder(cmd, page_vols, holder, page_ptrs, &holder.fbo_layer0, valid_mask);
         }
         done++;
     }

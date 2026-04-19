@@ -2,27 +2,24 @@
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
-layout(binding = 0)         uniform sampler3D  volume;
-layout(binding = 1)         uniform usampler3D dist_field;
-layout(binding = 2, rgba8)  uniform restrict writeonly image2D color_out;
-layout(binding = 3, r16f)   uniform restrict writeonly image2D height_out;
+layout(binding = 0) uniform sampler3D  page_volumes[4];
+layout(binding = 4, rgba8) uniform restrict writeonly image2D color_out;
+layout(binding = 5, r16f)  uniform restrict writeonly image2D height_out;
 
-layout(std140, binding = 4) uniform U {
-    vec4  camera_pos;
-    vec4  camera_forward;
-    vec4  camera_right;
-    vec4  camera_up;
-    vec4  world_min;
-    vec4  world_max;
-    ivec4 resolution;
-    ivec4 pitches;
-    ivec4 page_pixels;
-    ivec4 write_offset;
-    float half_extent_x;
-    float half_extent_y;
+layout(std140, binding = 7) uniform U {
+    vec4  holder_center;                // (cx, 0, cz, 0)
+    vec4  iso_bbox;                     // (sx_min, sy_min, sx_max, sy_max) in holder-local iso
+    vec4  page_world_min[4];
+    vec4  page_world_max[4];
+    ivec4 resolution;                   // fbo_w, fbo_h, volume_pitch, 0
+    ivec4 page_valid_mask;              // bit i: page i resident
+    float iso_tilt;
+    float volume_max_y;
+    float voxel_len;                    // world units per voxel (= holder_extent / volume_pitch)
+    float _pad0;
 };
 
-const int MAX_STEPS = 256;
+const int MAX_STEPS = 512;
 
 vec2 aabb_intersect(vec3 ro, vec3 rd, vec3 bmin, vec3 bmax)
 {
@@ -36,56 +33,104 @@ vec2 aabb_intersect(vec3 ro, vec3 rd, vec3 bmin, vec3 bmax)
     return vec2(tn, tf);
 }
 
+vec4 sample_page(int i, vec3 uvw)
+{
+    // Unroll: sampler array indexing must be a dynamically uniform or
+    // constant expression. A switch on (0..3) is safe here.
+    switch (i) {
+        case 0: return texture(page_volumes[0], uvw);
+        case 1: return texture(page_volumes[1], uvw);
+        case 2: return texture(page_volumes[2], uvw);
+        default: return texture(page_volumes[3], uvw);
+    }
+}
+
 void main()
 {
-    ivec2 local_pix = ivec2(gl_GlobalInvocationID.xy);
-    if (local_pix.x >= page_pixels.x || local_pix.y >= page_pixels.y) return;
+    ivec2 pix = ivec2(gl_GlobalInvocationID.xy);
+    if (pix.x >= resolution.x || pix.y >= resolution.y) return;
 
-    vec2 ndc    = (vec2(local_pix) + 0.5) / vec2(page_pixels.xy) * 2.0 - 1.0;
-    float aspect = float(page_pixels.x) / float(page_pixels.y);
+    float T = iso_tilt;
 
-    vec3 ro = camera_pos.xyz
-            + ndc.x * half_extent_x * camera_right.xyz
-            + ndc.y * half_extent_y * camera_up.xyz;
-    vec3 rd = camera_forward.xyz;
+    // pixel → iso-space (holder-local)
+    float frac_u = (float(pix.x) + 0.5) / float(resolution.x);
+    float frac_v = (float(pix.y) + 0.5) / float(resolution.y);
+    float sx = mix(iso_bbox.x, iso_bbox.z, frac_u);
+    float sy = mix(iso_bbox.y, iso_bbox.w, frac_v);
 
-    int   volume_pitch = pitches.x;
-    int   df_pitch     = pitches.y;
-    int   cell_voxels  = pitches.z;
+    // unproject at y_start = 2 * volume_max_y to ensure origin is above volume
+    float y_start = 2.0 * volume_max_y;
+    float sum     = -(sy + y_start) / T;       // dx + dz
+    float diff    = sx;                          // dx - dz
+    float dx0     = 0.5 * (diff + sum);
+    float dz0     = 0.5 * (sum  - diff);
 
-    vec4  color  = vec4(0.0);
-    float height = -1.0e30;
+    vec3 ro = vec3(holder_center.x + dx0, y_start, holder_center.z + dz0);
+    vec3 rd = normalize(vec3(1.0, -2.0 * T, 1.0));
 
-    vec3  size      = world_max.xyz - world_min.xyz;
-    float voxel_len = size.x / float(volume_pitch);
+    vec4  color = vec4(0.0);
+    float hit_y = -1.0e30;
 
-    vec2 t = aabb_intersect(ro, rd, world_min.xyz, world_max.xyz);
-    ivec2 out_pix = local_pix + write_offset.xy;
-
-    if (t.y > max(t.x, 0.0)) {
-        float t_cur = max(t.x, 0.0);
-        float t_end = t.y;
-
-        for (int i = 0; i < MAX_STEPS; i++) {
-            if (t_cur >= t_end) break;
-            vec3  p   = ro + t_cur * rd;
-            vec3  uvw = (p - world_min.xyz) / size;
-
-            uint d_cells = texelFetch(dist_field, ivec3(uvw * float(df_pitch)), 0).r;
-            if (d_cells <= 1u) {
-                vec4 v = texture(volume, uvw);
-                if (v.a > 0.5) {
-                    color  = vec4(v.rgb, 1.0);
-                    height = p.y;
-                    break;
-                }
-                t_cur += voxel_len;
+    // Intersect ray with each page AABB; march in near-to-far order.
+    // 4 pages → 4 entries. Sort by tn via simple insertion.
+    float tns[4];
+    float tfs[4];
+    int   order[4] = int[4](0, 1, 2, 3);
+    for (int i = 0; i < 4; i++) {
+        uint valid = uint(page_valid_mask.x);
+        if ((valid & (1u << i)) == 0u) {
+            tns[i] = 1.0e30;
+            tfs[i] = 1.0e30;
+        } else {
+            vec2 t = aabb_intersect(ro, rd, page_world_min[i].xyz, page_world_max[i].xyz);
+            if (t.y > max(t.x, 0.0)) {
+                tns[i] = max(t.x, 0.0);
+                tfs[i] = t.y;
             } else {
-                t_cur += float(d_cells - 1u) * float(cell_voxels) * voxel_len;
+                tns[i] = 1.0e30;
+                tfs[i] = 1.0e30;
             }
         }
     }
+    // Insertion sort (4 entries)
+    for (int i = 1; i < 4; i++) {
+        int k = order[i];
+        int j = i - 1;
+        while (j >= 0 && tns[order[j]] > tns[k]) {
+            order[j + 1] = order[j];
+            j--;
+        }
+        order[j + 1] = k;
+    }
 
-    imageStore(color_out,  out_pix, color);
-    imageStore(height_out, out_pix, vec4(height, 0.0, 0.0, 0.0));
+    int steps_remaining = MAX_STEPS;
+    bool done = false;
+
+    for (int slot = 0; slot < 4 && !done; slot++) {
+        int p = order[slot];
+        if (tns[p] >= 1.0e29) break;   // no more valid pages
+
+        float t_cur = tns[p];
+        float t_end = tfs[p];
+        vec3  pmin  = page_world_min[p].xyz;
+        vec3  pmax  = page_world_max[p].xyz;
+        vec3  psize = pmax - pmin;
+
+        while (t_cur < t_end && steps_remaining > 0) {
+            vec3 wp  = ro + t_cur * rd;
+            vec3 uvw = (wp - pmin) / psize;
+            vec4 v   = sample_page(p, uvw);
+            if (v.a > 0.5) {
+                color = vec4(v.rgb, 1.0);
+                hit_y = wp.y;
+                done  = true;
+                break;
+            }
+            t_cur += voxel_len;
+            steps_remaining--;
+        }
+    }
+
+    imageStore(color_out,  pix, color);
+    imageStore(height_out, pix, vec4(hit_y, 0.0, 0.0, 0.0));
 }

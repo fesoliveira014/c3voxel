@@ -3,7 +3,6 @@ module c3voxel::game;
 import std::math;
 
 import c3voxel::core;
-import c3voxel::voxel;
 
 const core::Degrees ISO_ELEVATION_DEG = 35.264;
 const core::Degrees ISO_AZIMUTH_DEG   = 45.0;
@@ -19,18 +18,6 @@ struct CameraState {
     float      far_plane;
     core::Vec3 pan_target;
     float      zoom_scale;
-}
-
-fn voxel::View CameraState.to_view(&self) @inline
-{
-    return {
-        .position      = self.position,
-        .forward       = self.forward,
-        .right         = self.right,
-        .up            = self.up,
-        .half_extent_x = self.half_extent_x,
-        .half_extent_y = self.half_extent_y,
-    };
 }
 
 fn CameraState camera_isometric(core::Vec3 target, float zoom, float aspect, core::Degrees azimuth = ISO_AZIMUTH_DEG)
