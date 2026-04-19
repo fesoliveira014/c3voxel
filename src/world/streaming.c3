@@ -1,6 +1,7 @@
 module c3voxel::world;
 
 import std::collections::list;
+import std::math;
 
 import c3voxel::core;
 import c3voxel::gpu;
@@ -87,11 +88,14 @@ fn HolderId ensure_holder_exists(BlockPool* blocks, HolderPool* holders, PagePoo
     int cx = floor_div(hx_i, HOLDERS_PER_BLOCK);
     int cz = floor_div(hz_i, HOLDERS_PER_BLOCK);
     BlockId bid = blocks.get_or_create((BlockCoord)cx, (BlockCoord)cz);
+    blocks.retain(bid);
 
     HolderId? hid_opt = holders.get_or_create(hx, hz, bid);
-    if (catch err = hid_opt) return HOLDER_INVALID;
+    if (catch err = hid_opt) {
+        blocks.decrement_ref(bid);
+        return HOLDER_INVALID;
+    }
     HolderId hid = hid_opt;
-    blocks.retain(bid);
 
     Holder* holder = holders.get(hid);
     if (holder == null) return HOLDER_INVALID;
@@ -126,8 +130,18 @@ fn void streaming_update(GpuPool* pool, BlockPool* blocks, HolderPool* holders, 
     pool.current_frame++;
     HolderRect rect = visible_holder_rect(pan_target, zoom, fb_w, fb_h, VISIBLE_MARGIN_HOLDERS);
 
+    float extent_f   = (float)HOLDER_WORLD_EXTENT;
+    float max_radius = (float)math::sqrt((double)POOL_SIZE / (double)math::PI) * extent_f * 0.95f;
+    float max_rad_sq = max_radius * max_radius;
+
     for (HolderCoord hz = rect.z0; hz <= rect.z1; hz++) {
         for (HolderCoord hx = rect.x0; hx <= rect.x1; hx++) {
+            float cx = (float)(int)hx * extent_f + extent_f * 0.5f;
+            float cz = (float)(int)hz * extent_f + extent_f * 0.5f;
+            float dx = cx - pan_target.x;
+            float dz = cz - pan_target.z;
+            if (dx * dx + dz * dz > max_rad_sq) continue;
+
             HolderId hid = ensure_holder_exists(blocks, holders, pages, hx, hz);
             if ((uint)hid == core::HANDLE_INVALID_VALUE) continue;
             int slot = pool.find_slot(hid);
