@@ -649,8 +649,44 @@ fn void buildings_generate_for_block(Block* block, Allocator scratch, uint world
         phase_wing_tips(block);
         phase_doors(block);
         phase_fill_terrain(block, scratch);
+        flatten_heightmap_under_footprints(block);
     }
     block.buildings_dirty = false;
+}
+
+// Stamp the block's CPU heightmap flat under every WING/MAINHALL tile.
+// Terrain outside the footprint rises naturally; inside the footprint it's
+// clamped to the tile's adjusted_height so walls / roofs don't get
+// occluded by terrain poking up from beneath. Re-uploads the heightmap
+// texture after the stamp.
+fn void flatten_heightmap_under_footprints(Block* block) @local
+{
+    const float MAX_H = 128.0f;
+    int pitch = BLOCK_HEIGHTMAP_PIXELS;
+    bool dirty = false;
+    for (int j = 0; j < BUILDING_GRID_Z; j++) {
+        for (int i = 0; i < BUILDING_GRID_X; i++) {
+            MapNode m = block.map_data[j * BUILDING_GRID_X + i];
+            ConType t = m.connection_props[0];
+            if (t != ConType.WING && t != ConType.MAINHALL) continue;
+            float target = m.adjusted_height * (float)BUILDING_TILE_PX / MAX_H;
+            int px0 = i * BUILDING_TILE_PX;
+            int pz0 = j * BUILDING_TILE_PX;
+            for (int pz = pz0; pz < pz0 + BUILDING_TILE_PX; pz++) {
+                for (int px = px0; px < px0 + BUILDING_TILE_PX; px++) {
+                    if (block.heightmap_cpu[pz * pitch + px] != target) {
+                        block.heightmap_cpu[pz * pitch + px] = target;
+                        dirty = true;
+                    }
+                }
+            }
+        }
+    }
+    if (dirty) {
+        gpu::texture2d_upload(
+            block.heightmap, block.heightmap_cpu.ptr, gpu::Format.R32F,
+            0, 0, 0, pitch, pitch);
+    }
 }
 
 // Emit a block's buildings into a page's PageGeometry lists. Walks the 3D
@@ -690,6 +726,42 @@ fn void building_emit_to_page(PageGeometry* out, Block* block, Page* page)
         for (int i = tile_i0; i < tile_i1; i++) {
             MapNode map_here = block.map_data[j * BUILDING_GRID_X + i];
             int base_height = (int)map_here.adjusted_height;
+
+            // Roof slab: for any footprint tile (WING or MAINHALL), emit a
+            // 1-tile-tall SHINGLE slab covering the entire 8x8 pixel tile
+            // at the building's top Y level. Neighbouring footprint tiles
+            // emit adjacent slabs that tile together into a continuous
+            // roof surface so the building reads as closed from above.
+            ConType foot_type = map_here.connection_props[0];
+            if (foot_type == ConType.WING || foot_type == ConType.MAINHALL) {
+                int roof_k = base_height + BUILDING_WALL_HEIGHT - 1;
+                float rx = block_origin_x + ((float)i + 0.5f) * tile_px_f;
+                float rz = block_origin_z + ((float)j + 0.5f) * tile_px_f;
+                float ry = ((float)roof_k + 0.5f) * tile_px_f;
+                float hx = tile_px_f * 0.5f;
+                float hz = tile_px_f * 0.5f;
+                float hy = 1.5f;   // ~3 voxels tall, thin slab for distinct roofline
+                core::Vec4 rmin = { rx - hx, ry - hy, rz - hz, 0.0f };
+                core::Vec4 rmax = { rx + hx, ry + hy, rz + hz, 0.0f };
+                voxel::GeomEntry roof = {
+                    .vis_min      = rmin,
+                    .vis_max      = rmax,
+                    .bounds_min   = rmin,
+                    .bounds_max   = rmax,
+                    .corner_dis   = { 0.0f, 0.0f, 0.0f, 0.0f },
+                    .power_vals   = { 6.0f, 6.0f, 0.0f, 0.0f },
+                    .power_vals_2 = { 0.0f, 0.0f, 0.0f, 0.0f },
+                    .thick_vals   = { 0.0f, 0.0f, 0.0f, 0.0f },
+                    .center_point = { rx, ry, rz, 0.0f },
+                    .mat          = {
+                        .material_id = (float)voxel::Material.SHINGLE.ordinal,
+                        .normal_id = 0.0f,
+                        .modifier = 0.0f,
+                        ._pad = 0.0f,
+                    },
+                };
+                out.geom.push(roof);
+            }
 
             for (int k = 0; k < BUILDING_GRID_Y; k++) {
                 int node_idx = k * BUILDING_GRID_X * BUILDING_GRID_Z
