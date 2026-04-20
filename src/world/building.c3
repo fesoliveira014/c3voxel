@@ -242,7 +242,11 @@ fn void select_buildings(Block* block, uint world_seed)
             uint lot_seed = voxel::voronoi_hash(
                 (uint)(int)block.cx, (uint)(int)block.cz,
                 world_seed, (uint)(lot_i * 11 + lot_j * 13));
-            int num_buildings = 1 + (int)((lot_seed >> 0) & 0x3u);
+            // 25% of lots stay empty (grass / fields). Remaining lots get
+            // 1 or 2 buildings — much sparser than the previous 1..4 fill.
+            uint lot_gate = (lot_seed >> 28) & 0x3u;
+            if (lot_gate == 0u) continue;
+            int num_buildings = 1 + (int)((lot_seed >> 0) & 0x1u);
 
             for (int b = 0; b < num_buildings; b++) {
                 uint b_seed = voxel::voronoi_hash(lot_seed, 0u, 0u, (uint)b);
@@ -252,8 +256,15 @@ fn void select_buildings(Block* block, uint world_seed)
                 int pos_i = ox + 1 + (int)((b_seed >> 16) % (uint)(lw - foot_w));
                 int pos_j = oz + 1 + (int)((b_seed >> 24) % (uint)(lh - foot_h));
 
-                // Footprint must not overlap anything already tagged.
+                // Footprint must not overlap anything already tagged AND
+                // must sit on relatively flat ground. Max-vs-min of the
+                // footprint's heightmap samples must be <= STEEP_THRESHOLD
+                // tile-units, else this building would be buried in a cliff
+                // or floating off one.
+                const float STEEP_THRESHOLD = 1.5f;
                 bool blocked = false;
+                float h_min = 1e30f;
+                float h_max = -1e30f;
                 for (int jj = pos_j; jj < pos_j + foot_h && !blocked; jj++) {
                     for (int ii = pos_i; ii < pos_i + foot_w && !blocked; ii++) {
                         if (ii < 0 || ii >= BUILDING_GRID_X || jj < 0 || jj >= BUILDING_GRID_Z) { blocked = true; break; }
@@ -261,9 +272,17 @@ fn void select_buildings(Block* block, uint world_seed)
                         for (int d = 0; d < 4; d++) {
                             if (m.connection_props[d] != ConType.NONE) { blocked = true; break; }
                         }
+                        if (m.adjusted_height < h_min) h_min = m.adjusted_height;
+                        if (m.adjusted_height > h_max) h_max = m.adjusted_height;
                     }
                 }
                 if (blocked) continue;
+                if (h_max - h_min > STEEP_THRESHOLD) continue;
+
+                // Flatten the footprint: set every building tile to the
+                // mean pre-smoothing heightmap height. Keeps walls from
+                // stepping up/down across the footprint.
+                float footprint_mean = (h_min + h_max) * 0.5f;
 
                 int centre_i = pos_i + foot_w / 2;
                 int centre_j = pos_j + foot_h / 2;
@@ -275,6 +294,7 @@ fn void select_buildings(Block* block, uint world_seed)
                         m.connection_props[1] = kind;
                         m.connection_props[2] = kind;
                         m.connection_props[3] = kind;
+                        m.adjusted_height = footprint_mean;
                     }
                 }
             }
@@ -602,12 +622,17 @@ fn void buildings_generate_for_block(Block* block, Allocator scratch, uint world
     if (!block.buildings_dirty) return;
     building_data_clear(block);
     build_map_data(block);
-    select_buildings(block, world_seed);
-    smooth_heights(block);
-    phase_roads_and_buildings(block);
-    phase_wing_tips(block);
-    phase_doors(block);
-    phase_fill_terrain(block, scratch);
+    // Only generate buildings inside city blocks. Every block got dense
+    // building coverage before — 1/16 blocks being cities is already set
+    // by block_has_city in road.c3, so mirror that gate here.
+    if (block_has_city(block.cx, block.cz)) {
+        select_buildings(block, world_seed);
+        smooth_heights(block);
+        phase_roads_and_buildings(block);
+        phase_wing_tips(block);
+        phase_doors(block);
+        phase_fill_terrain(block, scratch);
+    }
     block.buildings_dirty = false;
 }
 
