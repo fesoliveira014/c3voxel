@@ -20,6 +20,10 @@ struct Block {
     float[]        heightmap_cpu;    // persistent CPU copy, BLOCK_HEIGHTMAP_PIXELS² floats
     RoadRaster     road;
     gpu::Texture2D road_texture;     // R8UI, same dims as heightmap
+    BuildingNode[] building_data;    // BUILDING_GRID_X * _Z * _Y; owned
+    MapNode[]      map_data;          // BUILDING_GRID_X * _Z; owned
+    bool           buildings_dirty;
+    gpu::Texture2D building_interior_tex;
     bool           heightmap_dirty;
     int            holder_ref_count;
 }
@@ -52,8 +56,11 @@ fn void BlockPool.destroy(&self)
         if (slot.alive) {
             gpu::texture2d_destroy(slot.block.heightmap);
             gpu::texture2d_destroy(slot.block.road_texture);
+            gpu::texture2d_destroy(slot.block.building_interior_tex);
+            slot.block.building_interior_tex = gpu::TEXTURE2D_INVALID;
             if (slot.block.heightmap_cpu.len != 0) alloc::free(self.allocator, slot.block.heightmap_cpu.ptr);
             slot.block.road.free();
+            building_data_free(&slot.block, self.allocator);
         }
     }
     self.storage.free();
@@ -85,6 +92,13 @@ fn BlockId BlockPool.get_or_create(&self, BlockCoord cx, BlockCoord cz)
         .levels = 1,
     });
 
+    gpu::Texture2D building_tex = gpu::texture2d_create({
+        .width  = BLOCK_HEIGHTMAP_PIXELS,
+        .height = BLOCK_HEIGHTMAP_PIXELS,
+        .fmt    = gpu::Format.R16UI,
+        .levels = 1,
+    });
+
     float[] hm_cpu = alloc::new_array(self.allocator, float, (usz)(BLOCK_HEIGHTMAP_PIXELS * BLOCK_HEIGHTMAP_PIXELS));
 
     usz idx        = self.storage.len();
@@ -98,21 +112,35 @@ fn BlockId BlockPool.get_or_create(&self, BlockCoord cx, BlockCoord cz)
     }
     BlockSlot slot = {
         .block = {
-            .cx               = cx,
-            .cz               = cz,
-            .holders          = {},
-            .heightmap        = hm,
-            .heightmap_cpu    = hm_cpu,
-            .road             = {},
-            .road_texture     = road_tex,
-            .heightmap_dirty  = true,
-            .holder_ref_count = 0,
+            .cx                    = cx,
+            .cz                    = cz,
+            .holders               = {},
+            .heightmap             = hm,
+            .heightmap_cpu         = hm_cpu,
+            .road                  = {},
+            .road_texture          = road_tex,
+            .building_data         = {},
+            .map_data              = {},
+            .buildings_dirty       = true,
+            .building_interior_tex = building_tex,
+            .heightmap_dirty       = true,
+            .holder_ref_count      = 0,
         },
         .generation = next_gen,
         .alive      = true,
     };
     for (int i = 0; i < HOLDERS_PER_BLOCK * HOLDERS_PER_BLOCK; i++) slot.block.holders[i] = HOLDER_INVALID;
     slot.block.road.init(self.allocator);
+    if (catch building_data_init(&slot.block, self.allocator)) {
+        // Unwind: release anything we've allocated before wiring the slot up.
+        if (hm_cpu.len != 0) alloc::free(self.allocator, hm_cpu.ptr);
+        gpu::texture2d_destroy(hm);
+        gpu::texture2d_destroy(road_tex);
+        gpu::texture2d_destroy(building_tex);
+        slot.block.road.free();
+        building_data_free(&slot.block, self.allocator);
+        return BLOCK_INVALID;
+    }
     if (idx == self.storage.len()) {
         self.storage.push(slot);
     } else {
@@ -152,11 +180,14 @@ fn void BlockPool.decrement_ref(&self, BlockId id)
         slot.block.heightmap = gpu::TEXTURE2D_INVALID;
         gpu::texture2d_destroy(slot.block.road_texture);
         slot.block.road_texture = gpu::TEXTURE2D_INVALID;
+        gpu::texture2d_destroy(slot.block.building_interior_tex);
+        slot.block.building_interior_tex = gpu::TEXTURE2D_INVALID;
         if (slot.block.heightmap_cpu.len != 0) {
             alloc::free(self.allocator, slot.block.heightmap_cpu.ptr);
             slot.block.heightmap_cpu = {};
         }
         slot.block.road.free();
+        building_data_free(&slot.block, self.allocator);
         slot.alive = false;
         slot.generation++;
         core::IVec3 key = { (int)slot.block.cx, 0, (int)slot.block.cz };
