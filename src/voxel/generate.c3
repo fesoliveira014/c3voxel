@@ -60,7 +60,7 @@ fn void GenerateContext.destroy(&self)
     self.voronoi_ubo = gpu::BUFFER_INVALID;
 }
 
-fn void GenerateContext.dispatch_page(&self, gpu::Commands* cmd, VolumeRing* ring, int slot, world::Page* page, gpu::Texture2D block_heightmap, core::Vec4 block_origin, core::Vec4 block_extent, core::Seconds time)
+fn void GenerateContext.dispatch_page(&self, gpu::Commands* cmd, VolumeRing* ring, int slot, world::Page* page, gpu::Texture2D block_heightmap, gpu::Texture2D block_road, core::Vec4 block_origin, core::Vec4 block_extent, core::Seconds time)
 {
     world::PageGeometry* geom = &page.geometry;
 
@@ -94,6 +94,7 @@ fn void GenerateContext.dispatch_page(&self, gpu::Commands* cmd, VolumeRing* rin
     cmd.bind_ssbo(4, self.tree_ssbo);
     cmd.bind_ssbo(5, self.line_ssbo);
     cmd.bind_ubo(6, self.voronoi_ubo, 0, VoronoiParams.sizeof);
+    cmd.bind_texture_2d(7, block_road);
     cmd.dispatch(world::VOLUME_PITCH / 4, world::VOLUME_PITCH / 4, world::VOLUME_PITCH / 4);
     cmd.barrier(gpu::BarrierType.IMAGE_TO_TEXTURE);
 }

@@ -64,6 +64,8 @@ layout(std140, binding = 6) uniform VoronoiU {
     vec4 voro[27];
 };
 
+layout(binding = 7) uniform usampler2D road_raster;
+
 const float VOLUME_PITCH = 128.0;
 const float MAX_HEIGHT   = 128.0;
 const int   MATERIAL_COUNT = 17;
@@ -180,6 +182,13 @@ void main()
     float h01   = texture(heightmap, hm_uv).r;
     float h_w   = h01 * MAX_HEIGHT;
     vec4  result = terrain_color(h01, world.y, h_w);
+
+    // 1b. Road override: if this voxel is the surface voxel at (world.xz) AND
+    // the block's road raster has ROAD_BIT set here, paint it with DIRT (id 2).
+    uint road_flags = texture(road_raster, hm_uv).r;
+    if ((road_flags & 1u) != 0u && int(floor(world.y)) == int(floor(h_w))) {
+        result = material_color(2);
+    }
 
     // 2. Trees: iterate all entries with branch-priority-over-leaf precedence.
     // Nearest-match on center_point doesn't work for trees because child
