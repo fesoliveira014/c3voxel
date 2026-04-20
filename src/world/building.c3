@@ -16,13 +16,14 @@ const int BUILDING_NODE_CONS     = BUILDING_NODE_DIRS * BUILDING_NODE_LAYERS;   
 const int BUILDING_HEIGHT_ITERS  = 16;
 const int BLOCK_SIZE_IN_LOTS     = 8;
 const int LOT_PX                 = BLOCK_SIZE_IN_LOTS * BUILDING_TILE_PX;       // 64
-// 1.0 world units (was 0.5) so wall half-extent exceeds the voxel centre
-// offset. With half_x = 0.5 the only two voxels inside the wall's AABB were
-// pegged at d.x = 1.0 in the shader's superellipsoid test, and with p = 6
-// the equation d.x^6 + d.y^6 + d.z^6 <= 1 always failed (d.x = 1 leaves no
-// room for d.y/d.z). Walls rendered as literally zero voxels. At 1.0, voxel
-// centres land at d.x = 0.5 (inside), giving solid two-voxel-thick walls.
-const float WALL_RAD_M           = 1.0f;
+// 2.0 world units — four-voxel-thick walls. With WALL_RAD_M=0.5 the
+// superellipsoid test pegged every wall voxel at d.x=1.0 and p=6 failed
+// universally (zero voxels rendered). With 1.0 + p=2 (prior attempt),
+// walls read as circular discs that don't tile against their neighbours
+// — the vertical stacking of three wall tiers produced disconnected
+// capsules. 2.0 + p=6 gives solid cuboid walls with continuous stacks.
+// Matches VQ's wallRadInMeters * pixelsPerMeter ≈ 4 voxels.
+const float WALL_RAD_M           = 2.0f;
 const int BUILDING_NEW_SEA_LEV   = 2;
 const int BUILDING_WALL_HEIGHT   = 3;    // tile-Y levels a wall extrudes above ground
 
@@ -719,7 +720,19 @@ fn void building_emit_to_page(PageGeometry* out, Block* block, Page* page)
                         float half_z = dz == 1 ? wall_rad : tile_px_f * 0.5f * mult;
                         float half_y = tile_px_f * 0.5f;
 
-                        core::Vec4 bmin = { cx - half_x, cy - half_y, cz - half_z, 0.0f };
+                        // Foundations get extended ~1 tile below their
+                        // center to hide terrain-surface burial when a
+                        // slope bleeds up into the block. Walls get a
+                        // small -2 world-unit extension so they don't
+                        // float above slightly lower terrain patches.
+                        float bottom_ext = 0.0f;
+                        if (con.con_type == ConType.FOUNDATION) {
+                            bottom_ext = tile_px_f;
+                        } else {
+                            bottom_ext = 2.0f;
+                        }
+
+                        core::Vec4 bmin = { cx - half_x, cy - half_y - bottom_ext, cz - half_z, 0.0f };
                         core::Vec4 bmax = { cx + half_x, cy + half_y, cz + half_z, 0.0f };
 
                         // Material: by con_type, plus SHINGLE override at top.
@@ -749,10 +762,13 @@ fn void building_emit_to_page(PageGeometry* out, Block* block, Page* page)
                             .bounds_min   = bmin,
                             .bounds_max   = bmax,
                             .corner_dis   = { 0.0f, 0.0f, 0.0f, 0.0f },
-                            // p=2 (rounded box) instead of 6 (near-cube).
-                            // Softens wall edges, reduces the cube-like
-                            // pillar look at iso viewing angle.
-                            .power_vals   = { 2.0f, 2.0f, 0.0f, 0.0f },
+                            // p=6 near-cube. The superellipsoid test is
+                            // isotropic — it treats all axes the same
+                            // regardless of half-extent. p=2 made thin
+                            // walls into circular-disc shapes that gap
+                            // between vertically-stacked tiers; p=6 fills
+                            // the AABB tightly and stacks continuously.
+                            .power_vals   = { 6.0f, 6.0f, 0.0f, 0.0f },
                             .power_vals_2 = { 0.0f, 0.0f, 0.0f, 0.0f },
                             .thick_vals   = { 0.0f, 0.0f, 0.0f, 0.0f },
                             .center_point = { cx, cy, cz, 0.0f },

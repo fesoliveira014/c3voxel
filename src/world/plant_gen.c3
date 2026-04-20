@@ -284,9 +284,27 @@ fn void plant_grow_tree(
     flatten_tree(scratch, out, rules.branch_material, rules.leaf_material);
 }
 
+// Check the block's building map_data at world (wx, wz). Returns true
+// if the tile there is tagged as a ROAD/WING/MAINHALL — tree placement
+// should skip these to avoid trees growing through buildings or roads.
+fn bool tile_is_built(Block* block, float wx, float wz) @local
+{
+    if (block == null || block.map_data.len == 0) return false;
+    float block_origin_x = (float)(int)block.cx * (float)BLOCK_HEIGHTMAP_PIXELS;
+    float block_origin_z = (float)(int)block.cz * (float)BLOCK_HEIGHTMAP_PIXELS;
+    float lx = wx - block_origin_x;
+    float lz = wz - block_origin_z;
+    int tile_i = (int)(lx / (float)BUILDING_TILE_PX);
+    int tile_j = (int)(lz / (float)BUILDING_TILE_PX);
+    if (tile_i < 0 || tile_i >= BUILDING_GRID_X || tile_j < 0 || tile_j >= BUILDING_GRID_Z) return false;
+    ConType t = block.map_data[tile_j * BUILDING_GRID_X + tile_i].connection_props[0];
+    return t != ConType.NONE;
+}
+
 fn void plant_generate_page(
     PageGeometry*  out,
     Page*          page,
+    Block*         block,
     uint           world_seed,
     PlantNodeList* scratch)
 {
@@ -305,6 +323,9 @@ fn void plant_generate_page(
         float wz = page.world_min.z + fz * (page.world_max.z - page.world_min.z);
         float wy = heightmap_sample_at(wx, wz);
         if (wy < WATER_LEVEL_Y) continue;
+
+        // Skip trees growing through buildings or down the middle of roads.
+        if (tile_is_built(block, wx, wz)) continue;
 
         uint type_h = voxel::voronoi_hash(px, pz, world_seed, (uint)(i + 100));
         voxel::PlantType type = (voxel::PlantType)(type_h % (uint)voxel::PLANT_TYPE_COUNT);

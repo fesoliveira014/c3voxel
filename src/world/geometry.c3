@@ -50,8 +50,8 @@ fn void geometry_generate_page(PageGeometry* out, Page* page, Block* block, Plan
     out.clear();
     out.voronoi = voxel::voronoi_for_page(page);
 
-    // M7.2: trees.
-    plant_generate_page(out, page, WORLD_SEED, scratch_nodes);
+    // M7.2: trees — skip footprint tiles of buildings (block != null case).
+    plant_generate_page(out, page, block, WORLD_SEED, scratch_nodes);
 
     // M7.4: buildings (walls, doors, windows, lanterns).
     if (block != null) {
