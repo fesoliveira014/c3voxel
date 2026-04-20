@@ -119,12 +119,8 @@ fn float sample_heightmap_cpu(Block* block, int px, int pz) @local
     if (px >= 0 && px < pitch && pz >= 0 && pz < pitch) {
         return block.heightmap_cpu[pz * pitch + px];
     }
-    int world_x = (int)block.cx * pitch + px;
-    int world_z = (int)block.cz * pitch + pz;
-    float fx = (float)world_x * TERRAIN_NOISE_SCALE;
-    float fz = (float)world_z * TERRAIN_NOISE_SCALE;
-    float h = noise::fbm2(fx, fz, 4, 0.5f, 2.0f, 1337u);
-    return h * 0.5f + 0.5f;
+    // Flat-terrain mode (matches terrain.c3::FLAT_TERRAIN_H01).
+    return FLAT_TERRAIN_H01;
 }
 
 // Iterative stack-based DFS maze generator. Emits road pixels via Bresenham

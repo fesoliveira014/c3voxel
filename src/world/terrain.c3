@@ -8,6 +8,12 @@ import c3voxel::gpu;
 
 const float TERRAIN_NOISE_SCALE = 0.004;
 
+// Flat-terrain h01. Surface world-y = FLAT_TERRAIN_H01 * MAX_HEIGHT (128).
+// 0.25 → y=32 puts the ground above WATER_LEVEL_Y=16 (so trees still
+// qualify) and below the volume top (y=128), leaving ~96 voxels of air
+// for walls, trees, and compositing headroom.
+const float FLAT_TERRAIN_H01 = 0.25;
+
 fn void generate_heightmap_cpu(Allocator allocator, Block* block, uint seed)
 {
     int n = BLOCK_HEIGHTMAP_PIXELS;
@@ -15,10 +21,7 @@ fn void generate_heightmap_cpu(Allocator allocator, Block* block, uint seed)
 
     for (int z = 0; z < n; z++) {
         for (int x = 0; x < n; x++) {
-            float fx = (float)((int)block.cx * n + x) * TERRAIN_NOISE_SCALE;
-            float fz = (float)((int)block.cz * n + z) * TERRAIN_NOISE_SCALE;
-            float h = noise::fbm2(fx, fz, 4, 0.5, 2.0, seed);
-            buf[z * n + x] = h * 0.5 + 0.5;
+            buf[z * n + x] = FLAT_TERRAIN_H01;
         }
     }
 
