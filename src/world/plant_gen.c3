@@ -184,15 +184,89 @@ fn float compute_max_length(voxel::PlantRules rules) @local
     return total;
 }
 
+// Scale branch thicknesses to voxel space. PlantRules stores VQ-style
+// "meters" values (beg ~1.0, end ~0.3–0.4) which render as sub-voxel
+// cylinders — most branches fall between the voxel grid entirely,
+// especially for BARE_OAK variants that have no leaf sphere to mask
+// the gap. Scaling gives VQ-like trunks a few voxels in diameter.
+// Sphere rad stays in world units so leaves don't become
+// building-sized.
+const float BRANCH_VOXEL_SCALE = 2.5f;
+
+fn void push_tree_entry(
+    PageGeometry*       out,
+    core::Vec3          p0,
+    core::Vec3          p1,
+    core::Vec3          p2,
+    float               beg_t_vox,
+    float               end_t_vox,
+    float               sphere_rad,
+    voxel::Material     branch_mat,
+    voxel::Material     leaf_mat) @local
+{
+    float r_max = math::max(math::max(beg_t_vox, end_t_vox), sphere_rad);
+    core::Vec3 vmin = {
+        math::min(math::min(p0.x, p1.x), p2.x) - r_max,
+        math::min(math::min(p0.y, p1.y), p2.y) - r_max,
+        math::min(math::min(p0.z, p1.z), p2.z) - r_max,
+    };
+    core::Vec3 vmax = {
+        math::max(math::max(p0.x, p1.x), p2.x) + r_max,
+        math::max(math::max(p0.y, p1.y), p2.y) + r_max,
+        math::max(math::max(p0.z, p1.z), p2.z) + r_max,
+    };
+    core::Vec3 center = vec3_lerp(p0, p2, 0.5f);
+
+    voxel::TreeEntry entry = {
+        .vis_min      = { vmin.x, vmin.y, vmin.z, 0.0f },
+        .vis_max      = { vmax.x, vmax.y, vmax.z, 0.0f },
+        .p0           = { p0.x, p0.y, p0.z, 0.0f },
+        .p1           = { p1.x, p1.y, p1.z, 0.0f },
+        .p2           = { p2.x, p2.y, p2.z, 0.0f },
+        .power_vals   = { 0.0f, 0.0f, 0.0f, 0.0f },
+        .power_vals_2 = { 0.0f, 0.0f, 0.0f, 0.0f },
+        // thick_vals.w = leaf material id (tree-specific packing).
+        .thick_vals   = { beg_t_vox, end_t_vox, sphere_rad, (float)leaf_mat.ordinal },
+        .center_point = { center.x, center.y, center.z, 0.0f },
+        .mat          = { .material_id = (float)branch_mat.ordinal, .normal_id = 0.0f, .modifier = 0.0f, ._pad = 0.0f },
+    };
+    out.tree.push(entry);
+}
+
 fn void flatten_tree(PlantNodeList* scratch, PageGeometry* out, voxel::Material branch_mat, voxel::Material leaf_mat)
 {
+    // Emit the SEED (root) node as a dedicated straight-line trunk entry:
+    // p0 = ground origin, p2 = top of trunk, p1 = chord midpoint. All
+    // other entries below also use p1 = chord midpoint so each bezier is
+    // a straight segment — the shader's tangent-line distance
+    // approximation (project onto p0→p2 chord, evaluate bezier at that
+    // t) is EXACT only when p1 lies on the chord. Before this split the
+    // gen-0 children used p0 = origin and p1 = midpoint of (top_beg, top_end),
+    // giving a strongly arched bezier; the approximation then placed
+    // on_bezier ~6 units above the voxel's actual world position near
+    // the ground, so mid-trunk voxels read as empty and the canopy
+    // floated above an invisible trunk stub.
+    if (scratch.len() > 0) {
+        PlantNode seed = (*scratch)[0];
+        if (seed.is_root_node) {
+            core::Vec3 p0 = seed.beg_point;
+            core::Vec3 p2 = seed.end_point;
+            core::Vec3 p1 = vec3_lerp(p0, p2, 0.5f);
+            float beg_t_vox = seed.beg_thickness * BRANCH_VOXEL_SCALE;
+            float end_t_vox = seed.end_thickness * BRANCH_VOXEL_SCALE;
+            push_tree_entry(out, p0, p1, p2, beg_t_vox, end_t_vox,
+                            0.0f, branch_mat, leaf_mat);
+        }
+    }
+
     for (usz i = 0; i < scratch.len(); i++) {
         PlantNode n = (*scratch)[i];
         if (n.is_root_node) continue;
 
         // Find parent — scan backwards for the node whose child range contains i.
-        // With MAX_NODES_PER_TREE=1024 the quadratic scan is a few hundred µs worst
-        // case and avoids storing an explicit parent index on every PlantNode.
+        // With MAX_NODES_PER_TREE=1024 the quadratic scan is a few hundred µs
+        // worst case and avoids storing an explicit parent index on every
+        // PlantNode.
         int parent_idx = 0;
         for (int j = (int)i - 1; j >= 0; j--) {
             PlantNode pn = (*scratch)[(usz)j];
@@ -203,65 +277,19 @@ fn void flatten_tree(PlantNodeList* scratch, PageGeometry* out, voxel::Material 
         }
         PlantNode parent = (*scratch)[(usz)parent_idx];
 
-        // Standard quadratic Bezier convention: p0 and p2 are CURVE
-        // ENDPOINTS, p1 is the bend-control midpoint. Earlier drafts
-        // used midpoints and beg_point which mapped onto a different
-        // semantic — leaves ended up at branch bases, and branches
-        // extended past them looking like upside-down trees.
-        //
-        // Fixed mapping:
-        //   p0 = where this branch starts (parent's end / junction with
-        //        parent; for the virtual seed's immediate children,
-        //        parent.beg_point = the ground origin so the trunk
-        //        chord reaches the ground).
-        //   p1 = midpoint of THIS branch (bends the curve).
-        //   p2 = where this branch ends (the tip, where the leaf sphere
-        //        belongs — shader places the sphere at p2).
-        core::Vec3 p0_v = parent.is_root_node
-            ? parent.beg_point
-            : parent.end_point;
+        // ALWAYS use parent.end_point for p0 (including gen-0 children of
+        // the seed). The trunk itself is emitted above as its own entry,
+        // so gen-0 branches now start at the top of the trunk and extend
+        // outward. Because n.beg_point == parent.end_point, p1 below
+        // collapses to the chord midpoint and the bezier is straight.
+        core::Vec3 p0_v = parent.end_point;
         core::Vec3 p1_v = vec3_lerp(n.beg_point, n.end_point, 0.5f);
         core::Vec3 p2_v = n.end_point;
 
-        // Scale branch thicknesses to voxel space. PlantRules stores
-        // VQ-style "meters" values (beg ~1.0, end ~0.3–0.4) which render
-        // as sub-voxel cylinders — most branches fall between the voxel
-        // grid entirely, especially for BARE_OAK variants that have no
-        // leaf sphere to mask the gap. Scaling branches by ~4× gives
-        // VQ-like 2–4 voxel-diameter trunks. Sphere rad stays in world
-        // units so leaves don't become building-sized.
-        const float BRANCH_VOXEL_SCALE = 2.5f;
         float beg_t_vox = n.beg_thickness * BRANCH_VOXEL_SCALE;
         float end_t_vox = n.end_thickness * BRANCH_VOXEL_SCALE;
-
-        float r_max = math::max(math::max(beg_t_vox, end_t_vox), n.sphere_rad);
-        core::Vec3 vmin = {
-            math::min(math::min(p0_v.x, p1_v.x), p2_v.x) - r_max,
-            math::min(math::min(p0_v.y, p1_v.y), p2_v.y) - r_max,
-            math::min(math::min(p0_v.z, p1_v.z), p2_v.z) - r_max,
-        };
-        core::Vec3 vmax = {
-            math::max(math::max(p0_v.x, p1_v.x), p2_v.x) + r_max,
-            math::max(math::max(p0_v.y, p1_v.y), p2_v.y) + r_max,
-            math::max(math::max(p0_v.z, p1_v.z), p2_v.z) + r_max,
-        };
-
-        core::Vec3 center = vec3_lerp(p0_v, p2_v, 0.5f);
-
-        voxel::TreeEntry entry = {
-            .vis_min      = { vmin.x, vmin.y, vmin.z, 0.0f },
-            .vis_max      = { vmax.x, vmax.y, vmax.z, 0.0f },
-            .p0           = { p0_v.x, p0_v.y, p0_v.z, 0.0f },
-            .p1           = { p1_v.x, p1_v.y, p1_v.z, 0.0f },
-            .p2           = { p2_v.x, p2_v.y, p2_v.z, 0.0f },
-            .power_vals   = { 0.0f, 0.0f, 0.0f, 0.0f },
-            .power_vals_2 = { 0.0f, 0.0f, 0.0f, 0.0f },
-            // thick_vals.w = leaf material id for this entry (tree-specific packing)
-            .thick_vals   = { beg_t_vox, end_t_vox, n.sphere_rad, (float)leaf_mat.ordinal },
-            .center_point = { center.x, center.y, center.z, 0.0f },
-            .mat          = { .material_id = (float)branch_mat.ordinal, .normal_id = 0.0f, .modifier = 0.0f, ._pad = 0.0f },
-        };
-        out.tree.push(entry);
+        push_tree_entry(out, p0_v, p1_v, p2_v, beg_t_vox, end_t_vox,
+                        n.sphere_rad, branch_mat, leaf_mat);
     }
 }
 
