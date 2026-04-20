@@ -276,14 +276,21 @@ void main()
         result.rgb *= mix(0.85, 1.00, g);
     }
 
-    // M7.4 FILL_TERRAIN: if this voxel is inside a building room, carve to air.
-    // interior_mask bit k == 1 means Y-level k at (x,z) is room-interior.
-    // BUILDING_TILE_PX = 8 world units per tile in Y.
-    uint interior_mask = texture(building_interior, hm_uv).r;
-    int  y_tile = int(floor(world.y / 8.0));
-    if (y_tile >= 0 && y_tile < 16 && (interior_mask & (1u << uint(y_tile))) != 0u) {
-        result = vec4(0.0);
-    }
+    // M7.4 FILL_TERRAIN: DISABLED (quick-diagnostic) — the interior carve was
+    // overwriting wall voxels with vec4(0). The fill_terrain mask sets bits
+    // for Y levels [adj_h+1, adj_h+3] over the full 8x8 tile footprint, while
+    // walls are emitted at tile-Y levels {adj_h, adj_h+1, adj_h+2}. The
+    // overlap erases the top two thirds of every wall (and with tile-texel
+    // rounding at boundaries, sometimes the bottom level too), making
+    // buildings invisible. Leaving this off for M7.4 until fill_terrain is
+    // redesigned in M8 to properly exclude the wall footprint.
+    // TODO(M8): re-enable with a corrected mask that carves only the room
+    // interior volume, not the wall cells.
+    // uint interior_mask = texture(building_interior, hm_uv).r;
+    // int  y_tile = int(floor(world.y / 8.0));
+    // if (y_tile >= 0 && y_tile < 16 && (interior_mask & (1u << uint(y_tile))) != 0u) {
+    //     result = vec4(0.0);
+    // }
 
     imageStore(volume, voxel, result);
 }
