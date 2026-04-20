@@ -189,3 +189,124 @@ fn int footprint_pz_from(int footprint_px) @local
 {
     return footprint_px / 2;
 }
+
+// Deterministic [0, 1) stream keyed on (base_seed, counter). Mirrors the
+// same (hash, frand) pairing plant_gen uses, but keeps road generation
+// independent of the plant counter so the two don't alias.
+fn float road_frand(uint base_seed, uint* counter) @local
+{
+    uint h = voxel::voronoi_hash(base_seed, 0u, 0u, *counter);
+    *counter += 1u;
+    return voxel::voronoi_frand(h);
+}
+
+// Bresenham walk summing |Delta h| between consecutive pixels plus
+// WATER_PENALTY per below-sea pixel. O(segment_length) array lookups; used
+// by best_path_draw to score candidate midpoints.
+fn float weigh_path(Block* block, int x1, int z1, int x2, int z2) @local
+{
+    int dx =  math::abs(x2 - x1);
+    int dz = -math::abs(z2 - z1);
+    int sx = x1 < x2 ? 1 : -1;
+    int sz = z1 < z2 ? 1 : -1;
+    int err = dx + dz;
+    int x = x1;
+    int z = z1;
+
+    float prev_h = sample_heightmap_cpu(block, x, z);
+    float cost = 0.0f;
+    if (prev_h < WATER_SEA_LEVEL_NORM) cost += (float)WATER_PENALTY;
+
+    while (!(x == x2 && z == z2)) {
+        int e2 = 2 * err;
+        if (e2 >= dz) { err += dz; x += sx; }
+        if (e2 <= dx) { err += dx; z += sz; }
+
+        float h = sample_heightmap_cpu(block, x, z);
+        cost += (float)math::abs(h - prev_h);
+        if (h < WATER_SEA_LEVEL_NORM) cost += (float)WATER_PENALTY;
+        prev_h = h;
+    }
+    return cost;
+}
+
+// Recursive greedy midpoint displacement. Base case draws a Bresenham
+// segment; recursive case picks the lowest-cost of INTER_NUM_TRIES random
+// midpoints and recurses on each half. Segments whose endpoints lie outside
+// the block are clipped inside draw_segment; this is how cross-block roads
+// stop cleanly at the 512-px boundary.
+fn void best_path_draw(
+    RoadRaster* r, Block* block,
+    int x1, int z1, int x2, int z2,
+    int gen, uint* counter, uint seed) @local
+{
+    float dx = (float)(x2 - x1);
+    float dz = (float)(z2 - z1);
+    float dist = (float)math::sqrt(dx * dx + dz * dz);
+    float rad  = dist * 0.5f;
+
+    if (rad < 2.0f || gen > INTER_MAX_GEN) {
+        draw_segment(r, x1, z1, x2, z2, (char)ROAD_BIT);
+        return;
+    }
+
+    int mid_x = (x1 + x2) / 2;
+    int mid_z = (z1 + z2) / 2;
+
+    int   best_x     = mid_x;
+    int   best_z     = mid_z;
+    float best_cost  = 1e30f;
+
+    for (int i = 0; i < INTER_NUM_TRIES; i++) {
+        float ox = (road_frand(seed, counter) - 0.5f) * rad;
+        float oz = (road_frand(seed, counter) - 0.5f) * rad;
+        int cand_x = mid_x + (int)ox;
+        int cand_z = mid_z + (int)oz;
+        float cost = weigh_path(block, x1, z1, cand_x, cand_z)
+                   + weigh_path(block, cand_x, cand_z, x2, z2);
+        if (cost < best_cost) {
+            best_cost = cost;
+            best_x    = cand_x;
+            best_z    = cand_z;
+        }
+    }
+
+    best_path_draw(r, block, x1, z1, best_x, best_z, gen + 1, counter, seed);
+    best_path_draw(r, block, best_x, best_z, x2, z2, gen + 1, counter, seed);
+}
+
+// Draws inter-city links from this block's city centre to its N and E
+// neighbour cities. S and W links are emitted by the neighbour's own pass
+// — asymmetric handshake avoids double-drawing the same path. Non-city
+// blocks are skipped: cross-block pass-through pixels rely on the partner
+// block's clipped segment re-entering here, which M7.3 accepts as a seam
+// (see spec §Cross-block connections).
+fn void generate_inter_city_roads(RoadRaster* r, Block* block, uint seed) @local
+{
+    if (!block_has_city(block.cx, block.cz)) return;
+
+    int center_px = BLOCK_HEIGHTMAP_PIXELS / 2;
+    int center_pz = BLOCK_HEIGHTMAP_PIXELS / 2;
+
+    // North neighbour: same cx, cz + CITY_SPARSITY. Drawn in own-block coords
+    // by offsetting the neighbour centre by CITY_SPARSITY * BLOCK_HEIGHTMAP_PIXELS.
+    BlockCoord n_cx = block.cx;
+    BlockCoord n_cz = (BlockCoord)((int)block.cz + CITY_SPARSITY);
+    if (block_has_city(n_cx, n_cz)) {
+        uint n_seed = voxel::voronoi_hash((uint)(int)block.cx, (uint)(int)block.cz, seed, 1u);
+        uint counter = 0u;
+        int target_x = center_px;
+        int target_z = center_pz + CITY_SPARSITY * BLOCK_HEIGHTMAP_PIXELS;
+        best_path_draw(r, block, center_px, center_pz, target_x, target_z, 0, &counter, n_seed);
+    }
+
+    BlockCoord e_cx = (BlockCoord)((int)block.cx + CITY_SPARSITY);
+    BlockCoord e_cz = block.cz;
+    if (block_has_city(e_cx, e_cz)) {
+        uint e_seed = voxel::voronoi_hash((uint)(int)block.cx, (uint)(int)block.cz, seed, 2u);
+        uint counter = 0u;
+        int target_x = center_px + CITY_SPARSITY * BLOCK_HEIGHTMAP_PIXELS;
+        int target_z = center_pz;
+        best_path_draw(r, block, center_px, center_pz, target_x, target_z, 0, &counter, e_seed);
+    }
+}
