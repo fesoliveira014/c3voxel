@@ -276,15 +276,28 @@ fn void select_buildings(Block* block, uint world_seed)
                 // or floating off one.
                 const float STEEP_THRESHOLD = 1.5f;
                 bool blocked = false;
-                float h_min = 1e30f;
-                float h_max = -1e30f;
-                for (int jj = pos_j; jj < pos_j + foot_h && !blocked; jj++) {
-                    for (int ii = pos_i; ii < pos_i + foot_w && !blocked; ii++) {
-                        if (ii < 0 || ii >= BUILDING_GRID_X || jj < 0 || jj >= BUILDING_GRID_Z) { blocked = true; break; }
+                // 1-tile buffer on the overlap check — two footprints in
+                // the same lot that touch edge-to-edge would each skip
+                // drawing the shared perimeter walls (perimeter gate sees
+                // the neighbour's cprops as "inside"), producing merged
+                // buildings. Widening only the blocked-check iteration
+                // bounds by 1 forces a gap without affecting h_min/h_max.
+                for (int jj = pos_j - 1; jj < pos_j + foot_h + 1 && !blocked; jj++) {
+                    for (int ii = pos_i - 1; ii < pos_i + foot_w + 1 && !blocked; ii++) {
+                        if (ii < 0 || ii >= BUILDING_GRID_X || jj < 0 || jj >= BUILDING_GRID_Z) continue;
                         MapNode* m = &block.map_data[jj * BUILDING_GRID_X + ii];
                         for (int d = 0; d < 4; d++) {
                             if (m.connection_props[d] != ConType.NONE) { blocked = true; break; }
                         }
+                    }
+                }
+                if (blocked) continue;
+                float h_min = 1e30f;
+                float h_max = -1e30f;
+                for (int jj = pos_j; jj < pos_j + foot_h; jj++) {
+                    for (int ii = pos_i; ii < pos_i + foot_w; ii++) {
+                        if (ii < 0 || ii >= BUILDING_GRID_X || jj < 0 || jj >= BUILDING_GRID_Z) { blocked = true; break; }
+                        MapNode* m = &block.map_data[jj * BUILDING_GRID_X + ii];
                         if (m.adjusted_height < h_min) h_min = m.adjusted_height;
                         if (m.adjusted_height > h_max) h_max = m.adjusted_height;
                     }
