@@ -72,9 +72,15 @@ fn int city_size_for_block(BlockCoord cx, BlockCoord cz)
     return CITY_DEFAULT_SIZE_PX;
 }
 
+// Road brush radius in pixels. 1 → single-pixel line; 2 → ~3-wide; 3 → ~5-wide.
+// Roads are 2D surface pixels, and at default zoom one world pixel maps below
+// one screen pixel, so a thicker brush is essential for visibility.
+const int ROAD_BRUSH_RADIUS = 2;
+
 // Bresenham line drawing with per-pixel bounds clipping. Pixels outside
 // [0, pitch) are silently skipped; this lets callers emit segments whose
-// endpoints land in neighbour blocks without extra clipping logic.
+// endpoints land in neighbour blocks without extra clipping logic. Each
+// plot step fills a (2*ROAD_BRUSH_RADIUS+1)² brush around (x, z).
 fn void draw_segment(RoadRaster* r, int x1, int z1, int x2, int z2, char flag_bits) @local
 {
     int pitch = BLOCK_HEIGHTMAP_PIXELS;
@@ -86,8 +92,14 @@ fn void draw_segment(RoadRaster* r, int x1, int z1, int x2, int z2, char flag_bi
     int x = x1;
     int z = z1;
     while (true) {
-        if (x >= 0 && x < pitch && z >= 0 && z < pitch) {
-            r.pixels[z * pitch + x] |= flag_bits;
+        for (int bz = -ROAD_BRUSH_RADIUS; bz <= ROAD_BRUSH_RADIUS; bz++) {
+            for (int bx = -ROAD_BRUSH_RADIUS; bx <= ROAD_BRUSH_RADIUS; bx++) {
+                int px = x + bx;
+                int pz = z + bz;
+                if (px >= 0 && px < pitch && pz >= 0 && pz < pitch) {
+                    r.pixels[pz * pitch + px] |= flag_bits;
+                }
+            }
         }
         if (x == x2 && z == z2) break;
         int e2 = 2 * err;

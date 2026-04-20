@@ -187,7 +187,7 @@ void main()
     // the block's road raster has ROAD_BIT set here, paint it with DIRT (id 2).
     uint road_flags = texture(road_raster, hm_uv).r;
     if ((road_flags & 1u) != 0u && int(floor(world.y)) == int(floor(h_w))) {
-        result = material_color(2);
+        result = material_color(3);   // STONE — distinct from DIRT-banded terrain
     }
 
     // 2. Trees: iterate all entries with branch-priority-over-leaf precedence.
