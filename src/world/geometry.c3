@@ -45,11 +45,16 @@ fn void PageGeometry.free(&self)
 
 const uint WORLD_SEED = 1337u;
 
-fn void geometry_generate_page(PageGeometry* out, Page* page, PlantNodeList* scratch_nodes)
+fn void geometry_generate_page(PageGeometry* out, Page* page, Block* block, PlantNodeList* scratch_nodes)
 {
     out.clear();
     out.voronoi = voxel::voronoi_for_page(page);
 
-    // M7.2: trees (buildings/roads arrive in M7.3/M7.4 and will live alongside).
+    // M7.2: trees.
     plant_generate_page(out, page, WORLD_SEED, scratch_nodes);
+
+    // M7.4: buildings (walls, doors, windows, lanterns).
+    if (block != null) {
+        building_emit_to_page(out, block, page);
+    }
 }

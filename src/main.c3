@@ -303,9 +303,9 @@ fn void drain_dirty(
                 int ph = lz * world::PAGES_PER_HOLDER + lx;
                 world::Page* page = pages.get(holder.pages[ph]);
                 if (page == null) continue;
-                world::geometry_generate_page(&page.geometry, page, plant_scratch);
+                world::geometry_generate_page(&page.geometry, page, block, plant_scratch);
                 int slot = ring.next();
-                gen.dispatch_page(cmd, ring, slot, page, block.heightmap, block.road_texture, block_origin, block_extent, (core::Seconds)0.0f);
+                gen.dispatch_page(cmd, ring, slot, page, block.heightmap, block.road_texture, block.building_interior_tex, block_origin, block_extent, (core::Seconds)0.0f);
                 page_vols[ph]  = ring.slot(slot);
                 page_ptrs[ph]  = page;
                 valid_mask.x |= (1 << ph);

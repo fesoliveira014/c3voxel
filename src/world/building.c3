@@ -2,6 +2,7 @@ module c3voxel::world;
 
 import std::core::mem::alloc;
 
+import c3voxel::core;
 import c3voxel::gpu;
 import c3voxel::voxel;
 
@@ -566,4 +567,146 @@ fn void buildings_generate_for_block(Block* block, Allocator scratch, uint world
     phase_doors(block);
     phase_fill_terrain(block, scratch);
     block.buildings_dirty = false;
+}
+
+// Emit a block's buildings into a page's PageGeometry lists. Walks the 3D
+// node grid for tiles whose world position falls inside `page.world_min..max`.
+// For each non-NONE horizontal connection (base_dir 0 = +X, 4 = +Z only — the
+// +axis halves to avoid double-emitting shared walls), write a GeomEntry
+// sized as a wall segment at the shared tile edge.
+//
+// LANTERN connections emit a LineEntry. Walls at the top Y level (k+1 >=
+// adjusted_height + wall_height) use SHINGLE material (flat roofs, per spec).
+fn void building_emit_to_page(PageGeometry* out, Block* block, Page* page)
+{
+    if (block.building_data.len == 0) return;
+    if (block.map_data.len == 0) return;
+
+    float block_origin_x = (float)(int)block.cx * (float)BLOCK_HEIGHTMAP_PIXELS;
+    float block_origin_z = (float)(int)block.cz * (float)BLOCK_HEIGHTMAP_PIXELS;
+
+    // Page bounds in block-local tile coords. Clamp to grid so we don't index OOB.
+    float page_local_x0 = page.world_min.x - block_origin_x;
+    float page_local_z0 = page.world_min.z - block_origin_z;
+    float page_local_x1 = page.world_max.x - block_origin_x;
+    float page_local_z1 = page.world_max.z - block_origin_z;
+    int tile_i0 = (int)(page_local_x0 / (float)BUILDING_TILE_PX);
+    int tile_j0 = (int)(page_local_z0 / (float)BUILDING_TILE_PX);
+    int tile_i1 = (int)((page_local_x1 + (float)BUILDING_TILE_PX - 1.0f) / (float)BUILDING_TILE_PX);
+    int tile_j1 = (int)((page_local_z1 + (float)BUILDING_TILE_PX - 1.0f) / (float)BUILDING_TILE_PX);
+    if (tile_i0 < 0) tile_i0 = 0;
+    if (tile_j0 < 0) tile_j0 = 0;
+    if (tile_i1 > BUILDING_GRID_X) tile_i1 = BUILDING_GRID_X;
+    if (tile_j1 > BUILDING_GRID_Z) tile_j1 = BUILDING_GRID_Z;
+
+    float tile_px_f = (float)BUILDING_TILE_PX;
+    float wall_rad  = WALL_RAD_M;
+
+    for (int j = tile_j0; j < tile_j1; j++) {
+        for (int i = tile_i0; i < tile_i1; i++) {
+            MapNode map_here = block.map_data[j * BUILDING_GRID_X + i];
+            int base_height = (int)map_here.adjusted_height;
+
+            for (int k = 0; k < BUILDING_GRID_Y; k++) {
+                int node_idx = k * BUILDING_GRID_X * BUILDING_GRID_Z
+                             + j * BUILDING_GRID_X + i;
+                BuildingNode node = block.building_data[node_idx];
+
+                for (int axis_layer = 0; axis_layer < BUILDING_NODE_LAYERS; axis_layer++) {
+                    // +X (base_dir 0) and +Z (base_dir 4) only — avoids double emit.
+                    int[2] base_dirs = { 0, 4 };
+                    for (int bd_sel = 0; bd_sel < 2; bd_sel++) {
+                        int base_dir = base_dirs[bd_sel];
+                        int slot = axis_layer * BUILDING_NODE_DIRS + base_dir;
+                        BuildingCon con = node.con[slot];
+                        if (con.con_type == ConType.NONE) continue;
+                        if (con.con_type == ConType.ROAD) continue;   // roads rendered via road_raster
+
+                        int dx = base_dir == 0 ? 1 : 0;
+                        int dz = base_dir == 4 ? 1 : 0;
+
+                        // Wall position: midpoint of edge between (i, j) and neighbour.
+                        float cx = block_origin_x + ((float)i + (float)dx * 0.5f + 0.5f) * tile_px_f;
+                        float cz = block_origin_z + ((float)j + (float)dz * 0.5f + 0.5f) * tile_px_f;
+                        float cy = ((float)k + 0.5f) * tile_px_f;
+
+                        // Half-extents: thin along perpendicular axis, full tile along parallel.
+                        float mult = con.wing_mult > 0.01f ? con.wing_mult : 1.0f;
+                        float half_x = dx == 1 ? wall_rad : tile_px_f * 0.5f * mult;
+                        float half_z = dz == 1 ? wall_rad : tile_px_f * 0.5f * mult;
+                        float half_y = tile_px_f * 0.5f;
+
+                        core::Vec4 bmin = { cx - half_x, cy - half_y, cz - half_z, 0.0f };
+                        core::Vec4 bmax = { cx + half_x, cy + half_y, cz + half_z, 0.0f };
+
+                        // Material: by con_type, plus SHINGLE override at top.
+                        voxel::Material mat = voxel::Material.PLASTER;
+                        switch (con.con_type) {
+                            case ConType.FOUNDATION:   mat = voxel::Material.STONE;
+                            case ConType.DOORWAY:      mat = voxel::Material.WOOD;
+                            case ConType.WINDOWFRAME:  mat = voxel::Material.GLASS;
+                            case ConType.MAINHALL:
+                            case ConType.WING:         mat = voxel::Material.PLASTER;
+                            case ConType.LANTERN:      continue;   // emitted below as LineEntry
+                            default:                   mat = voxel::Material.PLASTER;
+                        }
+                        // Top-level tile: use SHINGLE.
+                        int roof_k = base_height + 3;   // walls span 3 tiles above ground
+                        if (k >= roof_k - 1 && mat == voxel::Material.PLASTER) {
+                            mat = voxel::Material.SHINGLE;
+                        }
+
+                        voxel::GeomEntry e = {
+                            .vis_min      = bmin,
+                            .vis_max      = bmax,
+                            .bounds_min   = bmin,
+                            .bounds_max   = bmax,
+                            .corner_dis   = { 0.0f, 0.0f, 0.0f, 0.0f },
+                            .power_vals   = { 6.0f, 6.0f, 0.0f, 0.0f },
+                            .power_vals_2 = { 0.0f, 0.0f, 0.0f, 0.0f },
+                            .thick_vals   = { 0.0f, 0.0f, 0.0f, 0.0f },
+                            .center_point = { cx, cy, cz, 0.0f },
+                            .mat          = {
+                                .material_id = (float)mat.ordinal,
+                                .normal_id = 0.0f,
+                                .modifier = 0.0f,
+                                ._pad = 0.0f,
+                            },
+                        };
+                        out.geom.push(e);
+                    }
+                }
+
+                // LANTERN emission — Y-axis-layer-1 slot 3 (= -Y in superstructure).
+                BuildingCon lantern = node.con[BUILDING_NODE_DIRS + 3];
+                if (lantern.con_type == ConType.LANTERN) {
+                    float cx = block_origin_x + ((float)i + 0.5f) * tile_px_f;
+                    float cz = block_origin_z + ((float)j + 0.5f) * tile_px_f;
+                    float cy = ((float)k + 0.5f) * tile_px_f;
+                    core::Vec4 origin_v  = { cx, cy, cz, 0.0f };
+                    core::Vec4 tangent_v = { 0.0f, 1.0f, 0.0f, 0.0f };
+                    core::Vec4 bmin = { cx - 1.0f, cy - 1.0f, cz - 1.0f, 0.0f };
+                    core::Vec4 bmax = { cx + 1.0f, cy + 1.0f, cz + 1.0f, 0.0f };
+                    voxel::LineEntry l = {
+                        .vis_min      = bmin,
+                        .vis_max      = bmax,
+                        .origin       = origin_v,
+                        .tangent      = tangent_v,
+                        .bitangent    = { 1.0f, 0.0f, 0.0f, 0.0f },
+                        .normal       = { 0.0f, 0.0f, 1.0f, 0.0f },
+                        .rad0         = { 0.3f, 0.0f, 0.0f, 0.0f },
+                        .rad1         = { 0.5f, 0.0f, 0.0f, 0.0f },
+                        .center_point = origin_v,
+                        .mat          = {
+                            .material_id = (float)voxel::Material.METAL.ordinal,
+                            .normal_id = 0.0f,
+                            .modifier = 0.0f,
+                            ._pad = 0.0f,
+                        },
+                    };
+                    out.line.push(l);
+                }
+            }
+        }
+    }
 }

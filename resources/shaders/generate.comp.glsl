@@ -65,6 +65,7 @@ layout(std140, binding = 6) uniform VoronoiU {
 };
 
 layout(binding = 7) uniform usampler2D road_raster;
+layout(binding = 8) uniform usampler2D building_interior;
 
 const float VOLUME_PITCH = 128.0;
 const float MAX_HEIGHT   = 128.0;
@@ -273,6 +274,15 @@ void main()
     if (hit) {
         float g = voronoi_grad(world);
         result.rgb *= mix(0.85, 1.00, g);
+    }
+
+    // M7.4 FILL_TERRAIN: if this voxel is inside a building room, carve to air.
+    // interior_mask bit k == 1 means Y-level k at (x,z) is room-interior.
+    // BUILDING_TILE_PX = 8 world units per tile in Y.
+    uint interior_mask = texture(building_interior, hm_uv).r;
+    int  y_tile = int(floor(world.y / 8.0));
+    if (y_tile >= 0 && y_tile < 16 && (interior_mask & (1u << uint(y_tile))) != 0u) {
+        result = vec4(0.0);
     }
 
     imageStore(volume, voxel, result);
