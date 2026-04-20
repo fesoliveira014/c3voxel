@@ -41,7 +41,9 @@ fn VoronoiParams voronoi_for_page(world::Page* page)
     core::Vec3 pmax = { page.world_max.x, page.world_max.y, page.world_max.z };
     core::Vec3 size = { pmax.x - pmin.x, pmax.y - pmin.y, pmax.z - pmin.z };
     core::Vec3 cell = { size.x / 3.0f, size.y / 3.0f, size.z / 3.0f };
-    core::Vec3 perturb = { cell.x * 0.4f, cell.y * 0.4f, cell.z * 0.4f };
+    // 0.3 (was 0.4): keeps seeds from straying outside the page AABB at
+    // edge cells, which would bias voronoi_grad toward an escaped seed.
+    core::Vec3 perturb = { cell.x * 0.3f, cell.y * 0.3f, cell.z * 0.3f };
 
     // Coordinate hash seed: derive from integer page coords directly — avoids
     // float-precision collisions that could occur at large world offsets

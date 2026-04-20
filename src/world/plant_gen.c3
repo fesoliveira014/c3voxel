@@ -110,7 +110,7 @@ fn void apply_rules(
     if (cur_length <= 0.0f) return;
 
     int first_child = (int)scratch.len();
-    if (first_child + num_kids >= MAX_NODES_PER_TREE) {
+    if (first_child + num_kids > MAX_NODES_PER_TREE) {
         if (!plant_overflow_warned) {
             io::eprintfn("[plant] MAX_NODES_PER_TREE exceeded, truncating");
             plant_overflow_warned = true;
@@ -153,7 +153,12 @@ fn void apply_rules(
         scratch.push(child);
     }
 
-    if (cur_gen < rules.num_generations - 1) {
+    // VQ's check is `curGen < maxGen`, producing `num_generations + 1` levels
+    // of children. With num_generations=2 and sphere_gen=2, VQ gets spheres
+    // on the deepest level (cur_gen=2). Earlier drafts used `< num_gen - 1`
+    // which produced one less level and forced sphere_gen remapping; we now
+    // match VQ exactly so the table can stay as-is.
+    if (cur_gen < rules.num_generations) {
         for (int i = 0; i < num_kids; i++) {
             apply_rules(scratch, rules, first_child + i, cur_gen + 1,
                         tot_length + cur_length, max_length, seed, counter);
@@ -189,7 +194,14 @@ fn void flatten_tree(PlantNodeList* scratch, PageGeometry* out, voxel::Material 
         }
         PlantNode parent = (*scratch)[(usz)parent_idx];
 
-        core::Vec3 p0_v = vec3_lerp(parent.beg_point, parent.end_point, 0.5f);
+        // For real parents, p0 = parent midpoint (Bezier anchor). For nodes
+        // directly parented by the virtual seed, using the seed's midpoint
+        // puts p0 above (or below, for roots) the ground — tree appears to
+        // float. VQ's initTree uses the parent's endPoint in that case, which
+        // coincides with this node's beg_point (the base of the trunk).
+        core::Vec3 p0_v = parent.is_root_node
+            ? parent.end_point
+            : vec3_lerp(parent.beg_point, parent.end_point, 0.5f);
         core::Vec3 p1_v = vec3_lerp(n.beg_point, n.end_point, 0.5f);
         core::Vec3 p2_v = n.beg_point;
 
@@ -281,7 +293,9 @@ fn void plant_generate_page(
     uint px = (uint)(int)page.px;
     uint pz = (uint)(int)page.pz;
     uint base_h = voxel::voronoi_hash(px, pz, world_seed, 0u);
-    int count = 3 + (int)((base_h >> 24) & 0x5u);   // 3..8 directly
+    // Uniform 3..8 via (0..5) + 3. Earlier `& 0x5u` variant only yielded
+    // {0, 1, 4, 5}, collapsing to tree counts {3, 4, 7, 8}.
+    int count = 3 + (int)(((base_h >> 24) & 0x7u) % 6u);
 
     for (int i = 0; i < count; i++) {
         uint pos_h = voxel::voronoi_hash(px, pz, world_seed, (uint)(i + 1));

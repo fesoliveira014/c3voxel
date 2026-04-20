@@ -153,7 +153,12 @@ vec4 eval_tree(vec3 w, TreeEntry e)
     // VQ tangent-line approximation: project onto the P0->P2 chord to estimate t,
     // evaluate the Bezier at that t, use Euclidean distance.
     vec3  chord    = p2 - p0;
-    float chord_sq = max(dot(chord, chord), 1e-6);
+    float chord_sq = dot(chord, chord);
+    if (chord_sq < 1e-4) {
+        // Degenerate chord — skip branch test; leaf sphere still counts.
+        if (sph > 0.0 && distance(w, p2) < sph) return material_color(leaf_mat_id);
+        return vec4(0.0);
+    }
     float t        = clamp(dot(w - p0, chord) / chord_sq, 0.0, 1.0);
     float omt      = 1.0 - t;
     vec3  on_bezier = omt * omt * p0 + 2.0 * omt * t * p1 + t * t * p2;
@@ -208,7 +213,17 @@ void main()
         int   leaf_mat_id = int(e.thick_vals.w);
 
         vec3  chord    = p2 - p0;
-        float chord_sq = max(dot(chord, chord), 1e-6);
+        float chord_sq = dot(chord, chord);
+        if (chord_sq < 1e-4) {
+            // Degenerate Bezier (p0 ≈ p2): the branch-distance projection
+            // blows up to 0 or 1 uniformly, painting the whole vis-AABB as
+            // "inside branch" and producing stray wood blobs. Skip the
+            // branch test; still allow the leaf sphere.
+            if (sph > 0.0 && distance(world, p2) < sph) {
+                tree_color = material_color(leaf_mat_id);
+            }
+            continue;
+        }
         float t        = clamp(dot(world - p0, chord) / chord_sq, 0.0, 1.0);
         float omt      = 1.0 - t;
         vec3  on_bezier = omt * omt * p0 + 2.0 * omt * t * p1 + t * t * p2;
@@ -232,7 +247,12 @@ void main()
     for (int i = 0; i < entry_counts.x; i++) {
         GeomEntry e = geom[i];
         if (!aabb_contains(world, e.vis_min.xyz, e.vis_max.xyz)) continue;
-        float d = distance(world, e.center_point.xyz);
+        // VQ uses XZ-plane distance (not 3D): a tall wall's center_point sits
+        // near its Y-midpoint, so a voxel high in the wall wouldn't "belong"
+        // to it under 3D distance — a shorter neighbouring wall would win. XZ
+        // distance avoids this and matches the procedural-generation-vq.md §6.3
+        // snippet (`testDisXY = distance(worldPos.xy, centerPt.xy)`).
+        float d = distance(world.xz, e.center_point.xz);
         if (d < best_dis) { best_dis = d; best_geom = i; }
     }
     vec4 geom_color = vec4(0.0);

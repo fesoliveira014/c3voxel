@@ -32,16 +32,17 @@ struct PlantRules {
 const float PLANT_PI = (float)math::PI;
 
 const PlantRules[PLANT_TYPE_COUNT] PLANT_TABLE = {
-    // OAK_TRUNK — ported from VQ f00341_gameplant.hpp.
-    // Note: `sphere_gen` is the CPU-reached cur_gen; in this project's apply_rules
-    // that's `num_generations - 1` for "leaves on branch tips" semantics.
+    // OAK_TRUNK — ported from VQ f00341_gameplant.hpp verbatim. With the VQ
+    // `cur_gen < num_generations` recursion semantics, a tree with
+    // num_generations=2 produces children at gens 0, 1, 2. sphere_gen=2 puts
+    // spheres on the deepest level (tips of the final branches).
     {
         .num_children       = { 2.0f, 5.0f },
         .divergence_angle_v = { PLANT_PI / 3.0f, PLANT_PI / 6.0f },
         .beg_thickness      = 1.0f,
         .end_thickness      = 0.4f,
-        .branch_length      = { 6.0f, 8.0f, 0.0f, 0.0f, 0.0f, 0.0f },
-        .sphere_gen         = 1,
+        .branch_length      = { 6.0f, 8.0f, 8.0f, 0.0f, 0.0f, 0.0f },
+        .sphere_gen         = 2,
         .sphere_rad         = 6.0f,
         .num_generations    = 2,
         .angle_uniformity_u = 0.75f,
@@ -68,8 +69,8 @@ const PlantRules[PLANT_TYPE_COUNT] PLANT_TABLE = {
         .divergence_angle_v = { PLANT_PI / 2.5f, PLANT_PI / 5.0f },
         .beg_thickness      = 1.4f,
         .end_thickness      = 0.5f,
-        .branch_length      = { 5.0f, 7.0f, 0.0f, 0.0f, 0.0f, 0.0f },
-        .sphere_gen         = 1,
+        .branch_length      = { 5.0f, 7.0f, 7.0f, 0.0f, 0.0f, 0.0f },
+        .sphere_gen         = 2,
         .sphere_rad         = 7.0f,
         .num_generations    = 2,
         .angle_uniformity_u = 0.7f,
@@ -96,7 +97,7 @@ const PlantRules[PLANT_TYPE_COUNT] PLANT_TABLE = {
         .divergence_angle_v = { PLANT_PI / 3.0f, PLANT_PI / 6.0f },
         .beg_thickness      = 1.0f,
         .end_thickness      = 0.3f,
-        .branch_length      = { 6.0f, 8.0f, 0.0f, 0.0f, 0.0f, 0.0f },
+        .branch_length      = { 6.0f, 8.0f, 8.0f, 0.0f, 0.0f, 0.0f },
         .sphere_gen         = -1,
         .sphere_rad         = 0.0f,
         .num_generations    = 2,
