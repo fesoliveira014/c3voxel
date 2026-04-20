@@ -5,8 +5,13 @@ import std::core::mem::alloc;
 import std::math;
 
 import c3voxel::core;
+import c3voxel::core::noise;
 import c3voxel::gpu;
 import c3voxel::voxel;
+
+// TERRAIN_NOISE_SCALE + the hard-coded fbm2 params below MUST mirror
+// `src/world/terrain.c3::generate_heightmap_cpu` so off-block heightmap
+// samples (below) agree with the persistent in-block buffer.
 
 const uint  ROAD_BIT             = 0x01u;    // surface pixel is part of any road
 const int   MAZE_CELL_PX         = 8;         // 16 cells x 8 px = 128 px footprint
@@ -91,14 +96,23 @@ fn void draw_segment(RoadRaster* r, int x1, int z1, int x2, int z2, char flag_bi
     }
 }
 
-// Clamped heightmap sample in normalised [0, 1] space. Pixels outside
-// the block are clamped to the nearest edge pixel.
+// Heightmap sample in normalised [0, 1] space at block-local pixel (px, pz).
+// Inside the block: direct array lookup. Outside: re-derive via fbm2 with the
+// same parameters terrain.c3 uses, so both endpoints of a cross-block road
+// agree on the cost of off-block pixels. Mirrors the sampling in
+// generate_heightmap_cpu; any change there must mirror here.
 fn float sample_heightmap_cpu(Block* block, int px, int pz) @local
 {
     int pitch = BLOCK_HEIGHTMAP_PIXELS;
-    int cx = px < 0 ? 0 : (px >= pitch ? pitch - 1 : px);
-    int cz = pz < 0 ? 0 : (pz >= pitch ? pitch - 1 : pz);
-    return block.heightmap_cpu[cz * pitch + cx];
+    if (px >= 0 && px < pitch && pz >= 0 && pz < pitch) {
+        return block.heightmap_cpu[pz * pitch + px];
+    }
+    int world_x = (int)block.cx * pitch + px;
+    int world_z = (int)block.cz * pitch + pz;
+    float fx = (float)world_x * TERRAIN_NOISE_SCALE;
+    float fz = (float)world_z * TERRAIN_NOISE_SCALE;
+    float h = noise::fbm2(fx, fz, 4, 0.5f, 2.0f, 1337u);
+    return h * 0.5f + 0.5f;
 }
 
 // Iterative stack-based DFS maze generator. Emits road pixels via Bresenham
@@ -276,39 +290,60 @@ fn void best_path_draw(
     best_path_draw(r, block, best_x, best_z, x2, z2, gen + 1, counter, seed);
 }
 
-// Draws inter-city links from this block's city centre to its N and E
-// neighbour cities. S and W links are emitted by the neighbour's own pass
-// — asymmetric handshake avoids double-drawing the same path. Non-city
-// blocks are skipped: cross-block pass-through pixels rely on the partner
-// block's clipped segment re-entering here, which M7.3 accepts as a seam
-// (see spec §Cross-block connections).
-fn void generate_inter_city_roads(RoadRaster* r, Block* block, uint seed) @local
+// Canonical seed for a city-pair edge: key by the lexicographically-smaller
+// endpoint so both endpoints (when resident) derive the same seed and trace
+// the same line. `axis_tag` distinguishes N/S edges (0) from E/W edges (1).
+fn uint canonical_edge_seed(int a_cx, int a_cz, int b_cx, int b_cz, uint axis_tag, uint world_seed) @local
 {
-    if (!block_has_city(block.cx, block.cz)) return;
+    int lo_cx = a_cx < b_cx ? a_cx : b_cx;
+    int lo_cz = a_cz < b_cz ? a_cz : b_cz;
+    return voxel::voronoi_hash((uint)lo_cx, (uint)lo_cz, world_seed, axis_tag + 1u);
+}
+
+// Draws inter-city links for every city-pair edge touching this block. Both
+// endpoints run best_path_draw from the canonical "origin" (smaller coord)
+// toward the "target" (larger coord) in block-local pixels, using the same
+// canonical_edge_seed. Because the algorithm is deterministic given the seed,
+// both blocks trace the same integer line; draw_segment clips to this block's
+// raster so each side only writes pixels inside its own boundary. Result:
+// seamless cross-block roads even when only one side is resident.
+//
+// Checks all 4 axial neighbours; non-city partners are skipped. Diagonals are
+// not connected (M7.3 scope).
+fn void generate_inter_city_roads(RoadRaster* r, Block* block, uint world_seed) @local
+{
+    int self_cx = (int)block.cx;
+    int self_cz = (int)block.cz;
+    bool self_city = block_has_city(block.cx, block.cz);
 
     int center_px = BLOCK_HEIGHTMAP_PIXELS / 2;
     int center_pz = BLOCK_HEIGHTMAP_PIXELS / 2;
 
-    // North neighbour: same cx, cz + CITY_SPARSITY. Drawn in own-block coords
-    // by offsetting the neighbour centre by CITY_SPARSITY * BLOCK_HEIGHTMAP_PIXELS.
-    BlockCoord n_cx = block.cx;
-    BlockCoord n_cz = (BlockCoord)((int)block.cz + CITY_SPARSITY);
-    if (block_has_city(n_cx, n_cz)) {
-        uint n_seed = voxel::voronoi_hash((uint)(int)block.cx, (uint)(int)block.cz, seed, 1u);
-        uint counter = 0u;
-        int target_x = center_px;
-        int target_z = center_pz + CITY_SPARSITY * BLOCK_HEIGHTMAP_PIXELS;
-        best_path_draw(r, block, center_px, center_pz, target_x, target_z, 0, &counter, n_seed);
-    }
+    int[4] dir_cx = { 0,  0,  CITY_SPARSITY, -CITY_SPARSITY };    // N, S, E, W
+    int[4] dir_cz = { CITY_SPARSITY, -CITY_SPARSITY, 0,  0 };
+    uint[4] axis  = { 0u, 0u, 1u, 1u };                            // NS, NS, EW, EW
 
-    BlockCoord e_cx = (BlockCoord)((int)block.cx + CITY_SPARSITY);
-    BlockCoord e_cz = block.cz;
-    if (block_has_city(e_cx, e_cz)) {
-        uint e_seed = voxel::voronoi_hash((uint)(int)block.cx, (uint)(int)block.cz, seed, 2u);
+    for (int d = 0; d < 4; d++) {
+        int o_cx = self_cx + dir_cx[d];
+        int o_cz = self_cz + dir_cz[d];
+        if (!block_has_city((BlockCoord)o_cx, (BlockCoord)o_cz)) continue;
+        if (!self_city) continue;    // only city blocks originate; partner is city by the check above
+
+        // Canonical origin = smaller-coord endpoint. Canonical target = larger.
+        int origin_cx = self_cx < o_cx ? self_cx : o_cx;
+        int origin_cz = self_cz < o_cz ? self_cz : o_cz;
+        int target_cx = self_cx < o_cx ? o_cx   : self_cx;
+        int target_cz = self_cz < o_cz ? o_cz   : self_cz;
+
+        // Translate origin/target city centres into THIS block's local pixels.
+        int origin_px = center_px + (origin_cx - self_cx) * BLOCK_HEIGHTMAP_PIXELS;
+        int origin_pz = center_pz + (origin_cz - self_cz) * BLOCK_HEIGHTMAP_PIXELS;
+        int target_px = center_px + (target_cx - self_cx) * BLOCK_HEIGHTMAP_PIXELS;
+        int target_pz = center_pz + (target_cz - self_cz) * BLOCK_HEIGHTMAP_PIXELS;
+
+        uint edge_seed = canonical_edge_seed(self_cx, self_cz, o_cx, o_cz, axis[d], world_seed);
         uint counter = 0u;
-        int target_x = center_px + CITY_SPARSITY * BLOCK_HEIGHTMAP_PIXELS;
-        int target_z = center_pz;
-        best_path_draw(r, block, center_px, center_pz, target_x, target_z, 0, &counter, e_seed);
+        best_path_draw(r, block, origin_px, origin_pz, target_px, target_pz, 0, &counter, edge_seed);
     }
 }
 
