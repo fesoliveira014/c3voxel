@@ -230,7 +230,7 @@ fn void flatten_tree(PlantNodeList* scratch, PageGeometry* out, voxel::Material 
         // leaf sphere to mask the gap. Scaling branches by ~4× gives
         // VQ-like 2–4 voxel-diameter trunks. Sphere rad stays in world
         // units so leaves don't become building-sized.
-        const float BRANCH_VOXEL_SCALE = 4.0f;
+        const float BRANCH_VOXEL_SCALE = 2.5f;
         float beg_t_vox = n.beg_thickness * BRANCH_VOXEL_SCALE;
         float end_t_vox = n.end_thickness * BRANCH_VOXEL_SCALE;
 
