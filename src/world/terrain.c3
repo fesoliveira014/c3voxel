@@ -11,8 +11,7 @@ const float TERRAIN_NOISE_SCALE = 0.004;
 fn void generate_heightmap_cpu(Allocator allocator, Block* block, uint seed)
 {
     int n = BLOCK_HEIGHTMAP_PIXELS;
-    float[] buf = alloc::new_array(allocator, float, (usz)(n * n));
-    defer alloc::free(allocator, buf.ptr);
+    float[] buf = block.heightmap_cpu;
 
     for (int z = 0; z < n; z++) {
         for (int x = 0; x < n; x++) {

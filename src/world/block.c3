@@ -1,6 +1,7 @@
 module c3voxel::world;
 
 import std::collections::list;
+import std::core::mem::alloc;
 
 import c3voxel::core;
 import c3voxel::gpu;
@@ -16,6 +17,7 @@ struct Block {
     BlockCoord     cz;
     HolderId[HOLDERS_PER_BLOCK * HOLDERS_PER_BLOCK] holders;
     gpu::Texture2D heightmap;
+    float[]        heightmap_cpu;    // persistent CPU copy, BLOCK_HEIGHTMAP_PIXELS² floats
     bool           heightmap_dirty;
     int            holder_ref_count;
 }
@@ -45,7 +47,10 @@ fn void BlockPool.destroy(&self)
 {
     for (usz i = 0; i < self.storage.len(); i++) {
         BlockSlot* slot = &self.storage[i];
-        if (slot.alive) gpu::texture2d_destroy(slot.block.heightmap);
+        if (slot.alive) {
+            gpu::texture2d_destroy(slot.block.heightmap);
+            if (slot.block.heightmap_cpu.len != 0) alloc::free(self.allocator, slot.block.heightmap_cpu.ptr);
+        }
     }
     self.storage.free();
     self.lookup.free();
@@ -69,6 +74,8 @@ fn BlockId BlockPool.get_or_create(&self, BlockCoord cx, BlockCoord cz)
         .levels = 1,
     });
 
+    float[] hm_cpu = alloc::new_array(self.allocator, float, (usz)(BLOCK_HEIGHTMAP_PIXELS * BLOCK_HEIGHTMAP_PIXELS));
+
     usz idx        = self.storage.len();
     char next_gen  = 0;
     for (usz i = 0; i < self.storage.len(); i++) {
@@ -84,6 +91,7 @@ fn BlockId BlockPool.get_or_create(&self, BlockCoord cx, BlockCoord cz)
             .cz               = cz,
             .holders          = {},
             .heightmap        = hm,
+            .heightmap_cpu    = hm_cpu,
             .heightmap_dirty  = true,
             .holder_ref_count = 0,
         },
@@ -128,7 +136,11 @@ fn void BlockPool.decrement_ref(&self, BlockId id)
     if (slot.block.holder_ref_count == 0) {
         gpu::texture2d_destroy(slot.block.heightmap);
         slot.block.heightmap = gpu::TEXTURE2D_INVALID;
-        slot.alive           = false;
+        if (slot.block.heightmap_cpu.len != 0) {
+            alloc::free(self.allocator, slot.block.heightmap_cpu.ptr);
+            slot.block.heightmap_cpu = {};
+        }
+        slot.alive = false;
         slot.generation++;
         core::IVec3 key = { (int)slot.block.cx, 0, (int)slot.block.cz };
         (void)self.lookup.remove(key);
