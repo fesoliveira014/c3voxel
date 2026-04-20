@@ -293,58 +293,11 @@ fn void select_buildings(Block* block, uint world_seed)
                     for (int ii = pos_i; ii < pos_i + foot_w; ii++) {
                         MapNode* m = &block.map_data[jj * BUILDING_GRID_X + ii];
                         m.adjusted_height = footprint_mean;
-                        // Don't set connection_props yet — post-pass below
-                        // will wire perimeter-only to avoid interior cross
-                        // walls. Still mark the centre tile as MAINHALL for
-                        // downstream logic (door direction, lantern pick).
-                        if (ii == centre_i && jj == centre_j) {
-                            m.connection_props[0] = ConType.MAINHALL;
-                            m.connection_props[1] = ConType.MAINHALL;
-                            m.connection_props[2] = ConType.MAINHALL;
-                            m.connection_props[3] = ConType.MAINHALL;
-                        }
-                    }
-                }
-                // Perimeter pass: only mark +X / +Z faces on tiles where
-                // exactly one side of the edge is inside this building's
-                // footprint. Walls emit from the +side of each edge, so
-                // owning the perimeter means: for each footprint tile with
-                // an OUTSIDE +X neighbour, set cprops[0]=WING; for each
-                // OUTSIDE tile whose +X neighbour is footprint, set
-                // cprops[0]=WING. Same for +Z (cprops[2]). No interior
-                // edges get WING, so no interior walls fire.
-                int fp_x0 = pos_i;
-                int fp_x1 = pos_i + foot_w - 1;
-                int fp_z0 = pos_j;
-                int fp_z1 = pos_j + foot_h - 1;
-                for (int jj = fp_z0; jj <= fp_z1; jj++) {
-                    // +X perimeter: last footprint column looks into the
-                    // outside tile at (fp_x1+1, jj).
-                    if (fp_x1 + 1 < BUILDING_GRID_X) {
-                        MapNode* m = &block.map_data[jj * BUILDING_GRID_X + fp_x1];
-                        if (m.connection_props[0] != ConType.MAINHALL) {
-                            m.connection_props[0] = ConType.WING;
-                        }
-                    }
-                    // -X perimeter: outside tile at (fp_x0-1, jj) looks
-                    // into the first footprint column.
-                    if (fp_x0 - 1 >= 0) {
-                        MapNode* m = &block.map_data[jj * BUILDING_GRID_X + (fp_x0 - 1)];
-                        m.connection_props[0] = ConType.WING;
-                        m.adjusted_height = footprint_mean;
-                    }
-                }
-                for (int ii = fp_x0; ii <= fp_x1; ii++) {
-                    if (fp_z1 + 1 < BUILDING_GRID_Z) {
-                        MapNode* m = &block.map_data[fp_z1 * BUILDING_GRID_X + ii];
-                        if (m.connection_props[2] != ConType.MAINHALL) {
-                            m.connection_props[2] = ConType.WING;
-                        }
-                    }
-                    if (fp_z0 - 1 >= 0) {
-                        MapNode* m = &block.map_data[(fp_z0 - 1) * BUILDING_GRID_X + ii];
-                        m.connection_props[2] = ConType.WING;
-                        m.adjusted_height = footprint_mean;
+                        ConType kind = (ii == centre_i && jj == centre_j) ? ConType.MAINHALL : ConType.WING;
+                        m.connection_props[0] = kind;
+                        m.connection_props[1] = kind;
+                        m.connection_props[2] = kind;
+                        m.connection_props[3] = kind;
                     }
                 }
             }
@@ -371,7 +324,20 @@ fn void phase_roads_and_buildings(Block* block)
                     int ni = i + dir_x[m];
                     int nj = j + dir_z[m];
                     if (ni < 0 || ni >= BUILDING_GRID_X || nj < 0 || nj >= BUILDING_GRID_Z) continue;
-                    int test_val_2 = (int)block.map_data[nj * BUILDING_GRID_X + ni].adjusted_height;
+                    MapNode* nbr = &block.map_data[nj * BUILDING_GRID_X + ni];
+                    int test_val_2 = (int)nbr.adjusted_height;
+
+                    // Perimeter-only gate: walls are emitted on edges where
+                    // EXACTLY one tile is inside a building footprint. An
+                    // edge between two footprint tiles is an interior edge
+                    // (the whole room is the same building) — no wall.
+                    // ROAD→building edges still fire (exterior wall with
+                    // possible DOORWAY upgrade later).
+                    ConType nbr_bt = nbr.connection_props[0];
+                    bool cur_is_wing = cur_bt == ConType.WING || cur_bt == ConType.MAINHALL;
+                    bool nbr_is_wing = nbr_bt == ConType.WING || nbr_bt == ConType.MAINHALL;
+                    if (cur_is_wing && nbr_is_wing) continue;
+
                     switch (cur_bt) {
                         case ConType.ROAD:
                         case ConType.MAINHALL:
@@ -768,7 +734,11 @@ fn void building_emit_to_page(PageGeometry* out, Block* block, Page* page)
                             default:                   mat = voxel::Material.PLASTER;
                         }
                         // Top-level tile: use SHINGLE at the single top wall level.
-                        int roof_k = base_height + BUILDING_WALL_HEIGHT;
+                        // Walls emit at k ∈ {base..base+BUILDING_WALL_HEIGHT-1}
+                        // (three levels for WALL_HEIGHT=3). Previously used
+                        // `base + WALL_HEIGHT` which is one above the top
+                        // and never matches — no roofs ever rendered.
+                        int roof_k = base_height + BUILDING_WALL_HEIGHT - 1;
                         if (k == roof_k && mat == voxel::Material.PLASTER) {
                             mat = voxel::Material.SHINGLE;
                         }
