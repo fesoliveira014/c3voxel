@@ -317,6 +317,143 @@ fn void phase_roads_and_buildings(Block* block)
     }
 }
 
+// Phase 5: scan WING runs along X (base_dir 0) and Z (base_dir 4), tagging
+// the run's endpoints with wing_beg / wing_end and fading wing_mult along
+// the run so centre tiles taper. The axis_layer=1 (superstructure) slot for
+// the matching base_dir receives the multiplier on every BuildingCon in
+// the vertical column at that tile — this drives shader-side wall silhouettes.
+fn void phase_wing_tips(Block* block)
+{
+    // axis_dir 0 = run along +X. Each row j walks i=0..GRID_X, grouping
+    // consecutive non-NONE WING tiles (connection_props[0]==WING).
+    for (int j = 0; j < BUILDING_GRID_Z; j++) {
+        int i = 0;
+        while (i < BUILDING_GRID_X) {
+            if (block.map_data[j * BUILDING_GRID_X + i].connection_props[0] != ConType.WING) {
+                i++;
+                continue;
+            }
+            int run_start = i;
+            while (i < BUILDING_GRID_X &&
+                   block.map_data[j * BUILDING_GRID_X + i].connection_props[0] == ConType.WING) {
+                i++;
+            }
+            int n = i - run_start;
+            if (n < 2) continue;
+
+            float half = (float)(n - 1) * 0.5f;
+            for (int s = 0; s < n; s++) {
+                int ti = run_start + s;
+                float wing_mult = 1.0f;
+                if (n > 1) {
+                    float d = (float)s - half;
+                    if (d < 0.0f) d = -d;
+                    wing_mult = 0.6f + 0.4f * (1.0f - d / half);
+                }
+                for (int k = 0; k < BUILDING_GRID_Y; k++) {
+                    int slot0 = 1 * BUILDING_NODE_DIRS + 0;   // axis_layer=1, +X
+                    int slot1 = 1 * BUILDING_NODE_DIRS + 1;   // axis_layer=1, -X
+                    BuildingCon* c0 = &block.building_data[node_index(ti, j, k)].con[slot0];
+                    BuildingCon* c1 = &block.building_data[node_index(ti, j, k)].con[slot1];
+                    c0.wing_mult = wing_mult;
+                    c1.wing_mult = wing_mult;
+                    if (s == 0)       c1.flags.wing_beg = true;
+                    if (s == n - 1)   c0.flags.wing_end = true;
+                }
+            }
+        }
+    }
+
+    // axis_dir 2 = run along +Z. connection_props[2] is the +Z face tag.
+    for (int i = 0; i < BUILDING_GRID_X; i++) {
+        int j = 0;
+        while (j < BUILDING_GRID_Z) {
+            if (block.map_data[j * BUILDING_GRID_X + i].connection_props[2] != ConType.WING) {
+                j++;
+                continue;
+            }
+            int run_start = j;
+            while (j < BUILDING_GRID_Z &&
+                   block.map_data[j * BUILDING_GRID_X + i].connection_props[2] == ConType.WING) {
+                j++;
+            }
+            int n = j - run_start;
+            if (n < 2) continue;
+
+            float half = (float)(n - 1) * 0.5f;
+            for (int s = 0; s < n; s++) {
+                int tj = run_start + s;
+                float wing_mult = 1.0f;
+                if (n > 1) {
+                    float d = (float)s - half;
+                    if (d < 0.0f) d = -d;
+                    wing_mult = 0.6f + 0.4f * (1.0f - d / half);
+                }
+                for (int k = 0; k < BUILDING_GRID_Y; k++) {
+                    int slot4 = 1 * BUILDING_NODE_DIRS + 4;   // axis_layer=1, +Z
+                    int slot5 = 1 * BUILDING_NODE_DIRS + 5;   // axis_layer=1, -Z
+                    BuildingCon* c4 = &block.building_data[node_index(i, tj, k)].con[slot4];
+                    BuildingCon* c5 = &block.building_data[node_index(i, tj, k)].con[slot5];
+                    c4.wing_mult = wing_mult;
+                    c5.wing_mult = wing_mult;
+                    if (s == 0)       c5.flags.wing_beg = true;
+                    if (s == n - 1)   c4.flags.wing_end = true;
+                }
+            }
+        }
+    }
+}
+
+// Phase 6: scan every axis_layer=1 horizontal connection. If its con_type is
+// WING and the facing neighbour's mapData tag is ROAD-classed, upgrade to
+// DOORWAY. Otherwise leave it as WINDOWFRAME (marker) and attach a LANTERN
+// pointing -Y from the same tile so downstream geometry can emit a lantern
+// at the interior face. LANTERN fidelity is intentionally rough for M7.4;
+// the M8 plan refines placement.
+fn void phase_doors(Block* block)
+{
+    int[4] dir_x = { 1, -1, 0, 0 };
+    int[4] dir_z = { 0, 0, 1, -1 };
+    ConFlags empty_flags = {};
+    for (int k = 0; k < BUILDING_GRID_Y; k++) {
+        for (int j = 0; j < BUILDING_GRID_Z; j++) {
+            for (int i = 0; i < BUILDING_GRID_X; i++) {
+                for (int m = 0; m < 4; m++) {
+                    int slot = 1 * BUILDING_NODE_DIRS + m;
+                    BuildingCon* c = &block.building_data[node_index(i, j, k)].con[slot];
+                    if (c.con_type != ConType.WING) continue;
+
+                    int ni = i + dir_x[m];
+                    int nj = j + dir_z[m];
+                    if (ni < 0 || ni >= BUILDING_GRID_X || nj < 0 || nj >= BUILDING_GRID_Z) continue;
+                    ConType neighbour_bt = block.map_data[nj * BUILDING_GRID_X + ni].connection_props[m];
+                    int ord = (int)neighbour_bt.ordinal;
+                    if (ord >= 0 && ord < CON_TYPE_COUNT && CON_TYPE_CLASSES[ord] == ConClass.CTC_ROAD) {
+                        c.con_type = ConType.DOORWAY;
+                    } else {
+                        c.con_type = ConType.WINDOWFRAME;
+                        // Attach a lantern pointing -Y (interior) if there's
+                        // room below. connect_nodes handles out-of-bounds.
+                        if (k - 1 >= 0) {
+                            connect_nodes(
+                                block,
+                                i, j, k,
+                                i, j, k - 1,
+                                k - 1,
+                                ConType.LANTERN,
+                                0,
+                                -1,
+                                1,
+                                WALL_RAD_M,
+                                empty_flags);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // Phase 3: clamp neighbour height deltas to 1 tile and floor to the new sea
 // level. Iterative because a single pass can leave cascading deltas; loop
 // exits early once a pass makes no changes.
