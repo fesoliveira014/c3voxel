@@ -279,10 +279,13 @@ fn void select_buildings(Block* block, uint world_seed)
                 if (blocked) continue;
                 if (h_max - h_min > STEEP_THRESHOLD) continue;
 
-                // Flatten the footprint: set every building tile to the
-                // mean pre-smoothing heightmap height. Keeps walls from
-                // stepping up/down across the footprint.
-                float footprint_mean = (h_min + h_max) * 0.5f;
+                // Flatten the footprint to the MAX heightmap sample across
+                // the footprint tiles. Mean caused buildings to sink below
+                // terrain on the higher side (visibly "buried"). Max makes
+                // walls rise at least to the highest terrain in the
+                // footprint so no voxel of wall is below the terrain
+                // surface anywhere in its span.
+                float footprint_mean = h_max;
 
                 int centre_i = pos_i + foot_w / 2;
                 int centre_j = pos_j + foot_h / 2;

@@ -87,7 +87,7 @@ vec4 material_color(int id) {
     if (id == 11) return vec4(1.00, 0.00, 1.00, 1.0);        // DEBUG
     if (id == 12) return vec4(0.20, 0.40, 0.70, 0.6);        // WATER
     if (id == 13) return vec4(0.75, 0.75, 0.80, 1.0);        // METAL
-    if (id == 14) return vec4(0.85, 0.95, 1.00, 0.4);        // GLASS
+    if (id == 14) return vec4(0.85, 0.95, 1.00, 1.0);        // GLASS — opaque until M8 lighting adds real translucency
     if (id == 15) return vec4(0.35, 0.25, 0.18, 1.0);        // EARTH
     return vec4(0.28, 0.20, 0.15, 1.0);                       // BARK
 }

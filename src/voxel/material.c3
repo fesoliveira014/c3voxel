@@ -43,7 +43,7 @@ const core::Vec4[MATERIAL_COUNT] MATERIAL_DEBUG_PALETTE = {
     { 1.00f, 0.00f, 1.00f, 1.0f },  // DEBUG
     { 0.20f, 0.40f, 0.70f, 0.6f },  // WATER
     { 0.75f, 0.75f, 0.80f, 1.0f },  // METAL
-    { 0.85f, 0.95f, 1.00f, 0.4f },  // GLASS
+    { 0.85f, 0.95f, 1.00f, 1.0f },  // GLASS — 1.0 so raymarch registers as opaque; translucency comes in M8.
     { 0.35f, 0.25f, 0.18f, 1.0f },  // EARTH
     { 0.28f, 0.20f, 0.15f, 1.0f },  // BARK
 };
