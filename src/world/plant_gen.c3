@@ -210,7 +210,18 @@ fn void flatten_tree(PlantNodeList* scratch, PageGeometry* out, voxel::Material 
         core::Vec3 p1_v = vec3_lerp(n.beg_point, n.end_point, 0.5f);
         core::Vec3 p2_v = n.beg_point;
 
-        float r_max = math::max(math::max(n.beg_thickness, n.end_thickness), n.sphere_rad);
+        // Scale branch thicknesses to voxel space. PlantRules stores
+        // VQ-style "meters" values (beg ~1.0, end ~0.3–0.4) which render
+        // as sub-voxel cylinders — most branches fall between the voxel
+        // grid entirely, especially for BARE_OAK variants that have no
+        // leaf sphere to mask the gap. Scaling branches by ~4× gives
+        // VQ-like 2–4 voxel-diameter trunks. Sphere rad stays in world
+        // units so leaves don't become building-sized.
+        const float BRANCH_VOXEL_SCALE = 4.0f;
+        float beg_t_vox = n.beg_thickness * BRANCH_VOXEL_SCALE;
+        float end_t_vox = n.end_thickness * BRANCH_VOXEL_SCALE;
+
+        float r_max = math::max(math::max(beg_t_vox, end_t_vox), n.sphere_rad);
         core::Vec3 vmin = {
             math::min(math::min(p0_v.x, p1_v.x), p2_v.x) - r_max,
             math::min(math::min(p0_v.y, p1_v.y), p2_v.y) - r_max,
@@ -233,7 +244,7 @@ fn void flatten_tree(PlantNodeList* scratch, PageGeometry* out, voxel::Material 
             .power_vals   = { 0.0f, 0.0f, 0.0f, 0.0f },
             .power_vals_2 = { 0.0f, 0.0f, 0.0f, 0.0f },
             // thick_vals.w = leaf material id for this entry (tree-specific packing)
-            .thick_vals   = { n.beg_thickness, n.end_thickness, n.sphere_rad, (float)leaf_mat.ordinal },
+            .thick_vals   = { beg_t_vox, end_t_vox, n.sphere_rad, (float)leaf_mat.ordinal },
             .center_point = { center.x, center.y, center.z, 0.0f },
             .mat          = { .material_id = (float)branch_mat.ordinal, .normal_id = 0.0f, .modifier = 0.0f, ._pad = 0.0f },
         };
