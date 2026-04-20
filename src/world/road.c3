@@ -2,12 +2,16 @@ module c3voxel::world;
 
 import std::core::mem;
 import std::core::mem::alloc;
+import std::math;
 
 import c3voxel::core;
+import c3voxel::voxel;
 
 const uint  ROAD_BIT             = 0x01u;    // surface pixel is part of any road
 const int   MAZE_CELL_PX         = 8;         // 16 cells x 8 px = 128 px footprint
+const int   MAZE_MAX_CELLS       = 32;        // max cells per maze axis (supports footprints up to 256 px)
 const int   CITY_SPARSITY        = 4;         // one city per CITY_SPARSITY^2 blocks
+const int   CITY_DEFAULT_SIZE_PX = 128;       // default city footprint in world pixels
 const int   INTER_NUM_TRIES      = 16;        // candidate midpoints per recursion level
 const int   INTER_MAX_GEN        = 10;        // hard cap on midpoint recursion depth
 const int   WATER_PENALTY        = 64;        // cost units per below-sea pixel
@@ -42,4 +46,146 @@ fn void RoadRaster.free(&self)
     self.pixels      = {};
     self.allocator   = null;
     self.initialized = false;
+}
+
+// Positive-modulo hash check: a block (cx, cz) hosts a city iff both
+// coords fall on the CITY_SPARSITY-spaced lattice.
+fn bool block_has_city(BlockCoord cx, BlockCoord cz)
+{
+    int ix = (int)cx;
+    int iz = (int)cz;
+    if (((ix % CITY_SPARSITY) + CITY_SPARSITY) % CITY_SPARSITY != 0) return false;
+    if (((iz % CITY_SPARSITY) + CITY_SPARSITY) % CITY_SPARSITY != 0) return false;
+    return true;
+}
+
+// Returns the city footprint in world pixels. Constant for M7.3; plumbing
+// exists so later milestones can drive size from a hash.
+fn int city_size_for_block(BlockCoord cx, BlockCoord cz)
+{
+    return CITY_DEFAULT_SIZE_PX;
+}
+
+// Bresenham line drawing with per-pixel bounds clipping. Pixels outside
+// [0, pitch) are silently skipped; this lets callers emit segments whose
+// endpoints land in neighbour blocks without extra clipping logic.
+fn void draw_segment(RoadRaster* r, int x1, int z1, int x2, int z2, char flag_bits) @local
+{
+    int pitch = BLOCK_HEIGHTMAP_PIXELS;
+    int dx =  math::abs(x2 - x1);
+    int dz = -math::abs(z2 - z1);
+    int sx = x1 < x2 ? 1 : -1;
+    int sz = z1 < z2 ? 1 : -1;
+    int err = dx + dz;
+    int x = x1;
+    int z = z1;
+    while (true) {
+        if (x >= 0 && x < pitch && z >= 0 && z < pitch) {
+            r.pixels[z * pitch + x] |= flag_bits;
+        }
+        if (x == x2 && z == z2) break;
+        int e2 = 2 * err;
+        if (e2 >= dz) { err += dz; x += sx; }
+        if (e2 <= dx) { err += dx; z += sz; }
+    }
+}
+
+// Clamped heightmap sample in normalised [0, 1] space. Pixels outside
+// the block are clamped to the nearest edge pixel.
+fn float sample_heightmap_cpu(Block* block, int px, int pz) @local
+{
+    int pitch = BLOCK_HEIGHTMAP_PIXELS;
+    int cx = px < 0 ? 0 : (px >= pitch ? pitch - 1 : px);
+    int cz = pz < 0 ? 0 : (pz >= pitch ? pitch - 1 : pz);
+    return block.heightmap_cpu[cz * pitch + cx];
+}
+
+// Iterative stack-based DFS maze generator. Emits road pixels via Bresenham
+// segments between cell centres; neighbour choice picks the unvisited cell
+// with the smallest |Delta h| tiebreaker and skips cells below sea level.
+fn void generate_maze(RoadRaster* r, Block* block, int center_px, int center_pz, int footprint_px, uint seed) @local
+{
+    int cells = footprint_px / MAZE_CELL_PX;
+    if (cells < 2) return;
+    if (cells > MAZE_MAX_CELLS) cells = MAZE_MAX_CELLS;
+
+    bool[MAZE_MAX_CELLS * MAZE_MAX_CELLS] visited = {};
+    int[MAZE_MAX_CELLS * MAZE_MAX_CELLS]  stack   = {};
+    int stack_len = 0;
+
+    int origin_x = center_px - footprint_px / 2;
+    int origin_z = center_pz - footprint_pz_from(footprint_px);
+
+    int start_i = cells / 2;
+    int start_j = cells / 2;
+    visited[start_j * cells + start_i] = true;
+    stack[stack_len++] = start_j * cells + start_i;
+
+    int[4] dir_dx = { 1, -1, 0, 0 };
+    int[4] dir_dz = { 0, 0, 1, -1 };
+    uint local_counter = 0u;
+
+    while (stack_len > 0) {
+        int top     = stack[stack_len - 1];
+        int curr_i  = top % cells;
+        int curr_j  = top / cells;
+        int curr_cx = origin_x + curr_i * MAZE_CELL_PX + MAZE_CELL_PX / 2;
+        int curr_cz = origin_z + curr_j * MAZE_CELL_PX + MAZE_CELL_PX / 2;
+        float curr_h = sample_heightmap_cpu(block, curr_cx, curr_cz);
+
+        // Deterministic randomised neighbour order: hash(seed, cell_index, counter).
+        uint ord_h = voxel::voronoi_hash((uint)top, seed, local_counter, 1337u);
+        local_counter += 1u;
+        int[4] order = { 0, 1, 2, 3 };
+        // Fisher-Yates on 4 elements with bits of ord_h supplying each swap index.
+        for (int i = 3; i > 0; i--) {
+            uint roll = ord_h & 0x3u;
+            ord_h >>= 2;
+            int j = (int)(roll % (uint)(i + 1));
+            int tmp  = order[i];
+            order[i] = order[j];
+            order[j] = tmp;
+        }
+
+        int best_n = -1;
+        float best_delta = 1e30f;
+        for (int k = 0; k < 4; k++) {
+            int d  = order[k];
+            int ni = curr_i + dir_dx[d];
+            int nj = curr_j + dir_dz[d];
+            if (ni < 0 || ni >= cells || nj < 0 || nj >= cells) continue;
+            if (visited[nj * cells + ni]) continue;
+
+            int ncx = origin_x + ni * MAZE_CELL_PX + MAZE_CELL_PX / 2;
+            int ncz = origin_z + nj * MAZE_CELL_PX + MAZE_CELL_PX / 2;
+            float nh = sample_heightmap_cpu(block, ncx, ncz);
+            if (nh < WATER_SEA_LEVEL_NORM) continue;
+
+            float delta = (float)math::abs(nh - curr_h);
+            if (delta < best_delta) {
+                best_delta = delta;
+                best_n     = d;
+            }
+        }
+
+        if (best_n < 0) {
+            stack_len--;
+            continue;
+        }
+
+        int ni = curr_i + dir_dx[best_n];
+        int nj = curr_j + dir_dz[best_n];
+        int ncx = origin_x + ni * MAZE_CELL_PX + MAZE_CELL_PX / 2;
+        int ncz = origin_z + nj * MAZE_CELL_PX + MAZE_CELL_PX / 2;
+        draw_segment(r, curr_cx, curr_cz, ncx, ncz, (char)ROAD_BIT);
+        visited[nj * cells + ni] = true;
+        stack[stack_len++] = nj * cells + ni;
+    }
+}
+
+// Helper: footprint origin z offset. Kept factored for symmetry with x so
+// future non-square footprints can diverge here without touching the caller.
+fn int footprint_pz_from(int footprint_px) @local
+{
+    return footprint_px / 2;
 }
