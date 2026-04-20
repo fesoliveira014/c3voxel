@@ -16,7 +16,13 @@ const int BUILDING_NODE_CONS     = BUILDING_NODE_DIRS * BUILDING_NODE_LAYERS;   
 const int BUILDING_HEIGHT_ITERS  = 16;
 const int BLOCK_SIZE_IN_LOTS     = 8;
 const int LOT_PX                 = BLOCK_SIZE_IN_LOTS * BUILDING_TILE_PX;       // 64
-const float WALL_RAD_M           = 0.5f;
+// 1.0 world units (was 0.5) so wall half-extent exceeds the voxel centre
+// offset. With half_x = 0.5 the only two voxels inside the wall's AABB were
+// pegged at d.x = 1.0 in the shader's superellipsoid test, and with p = 6
+// the equation d.x^6 + d.y^6 + d.z^6 <= 1 always failed (d.x = 1 leaves no
+// room for d.y/d.z). Walls rendered as literally zero voxels. At 1.0, voxel
+// centres land at d.x = 0.5 (inside), giving solid two-voxel-thick walls.
+const float WALL_RAD_M           = 1.0f;
 const int BUILDING_NEW_SEA_LEV   = 2;
 const int BUILDING_WALL_HEIGHT   = 3;    // tile-Y levels a wall extrudes above ground
 
