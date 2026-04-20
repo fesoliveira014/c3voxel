@@ -872,13 +872,17 @@ fn void building_emit_to_page(PageGeometry* out, Block* block, Page* page)
                             .bounds_min   = bmin,
                             .bounds_max   = bmax,
                             .corner_dis   = { 0.0f, 0.0f, 0.0f, 0.0f },
-                            // p=6 near-cube. The superellipsoid test is
-                            // isotropic — it treats all axes the same
-                            // regardless of half-extent. p=2 made thin
-                            // walls into circular-disc shapes that gap
-                            // between vertically-stacked tiers; p=6 fills
-                            // the AABB tightly and stacks continuously.
-                            .power_vals   = { 6.0f, 6.0f, 0.0f, 0.0f },
+                            // p=4 rounded box. Isotropic superellipsoid:
+                            // lower p rounds corners more aggressively,
+                            // and with the wall's anisotropic half-extents
+                            // (1 × 4 × 4) the y-face voxels fall outside
+                            // v ≤ 1 near the AABB top/bottom — vertically
+                            // stacked wall tiers develop gaps. p=2 was
+                            // worst (circular discs with obvious gaps);
+                            // p=6 rendered as hard cubes; p=4 is the
+                            // sweet spot — no visible gaps, slightly
+                            // softer silhouette than pure cubes.
+                            .power_vals   = { 4.0f, 4.0f, 0.0f, 0.0f },
                             .power_vals_2 = { 0.0f, 0.0f, 0.0f, 0.0f },
                             .thick_vals   = { 0.0f, 0.0f, 0.0f, 0.0f },
                             .center_point = { cx, cy, cz, 0.0f },

@@ -194,21 +194,25 @@ fn void flatten_tree(PlantNodeList* scratch, PageGeometry* out, voxel::Material 
         }
         PlantNode parent = (*scratch)[(usz)parent_idx];
 
-        // For real parents, p0 = parent midpoint (Bezier anchor). For
-        // nodes directly parented by the virtual seed, we want the chord
-        // from the ground origin up to the trunk junction. Previously
-        // used parent.end_point which equals this node's beg_point,
-        // making p0 == p2 — chord_sq ≈ 0, shader's degenerate-chord
-        // branch fires, and the trunk never renders. The gen-1+
-        // branches then float in the air at y=parent.end_point.y.
-        // Using parent.beg_point (the seed's origin, i.e. ground level)
-        // gives a real non-degenerate chord that paints trunk wood all
-        // the way down to the ground.
+        // Standard quadratic Bezier convention: p0 and p2 are CURVE
+        // ENDPOINTS, p1 is the bend-control midpoint. Earlier drafts
+        // used midpoints and beg_point which mapped onto a different
+        // semantic — leaves ended up at branch bases, and branches
+        // extended past them looking like upside-down trees.
+        //
+        // Fixed mapping:
+        //   p0 = where this branch starts (parent's end / junction with
+        //        parent; for the virtual seed's immediate children,
+        //        parent.beg_point = the ground origin so the trunk
+        //        chord reaches the ground).
+        //   p1 = midpoint of THIS branch (bends the curve).
+        //   p2 = where this branch ends (the tip, where the leaf sphere
+        //        belongs — shader places the sphere at p2).
         core::Vec3 p0_v = parent.is_root_node
             ? parent.beg_point
-            : vec3_lerp(parent.beg_point, parent.end_point, 0.5f);
+            : parent.end_point;
         core::Vec3 p1_v = vec3_lerp(n.beg_point, n.end_point, 0.5f);
-        core::Vec3 p2_v = n.beg_point;
+        core::Vec3 p2_v = n.end_point;
 
         // Scale branch thicknesses to voxel space. PlantRules stores
         // VQ-style "meters" values (beg ~1.0, end ~0.3–0.4) which render
