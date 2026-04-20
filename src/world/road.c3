@@ -5,6 +5,7 @@ import std::core::mem::alloc;
 import std::math;
 
 import c3voxel::core;
+import c3voxel::gpu;
 import c3voxel::voxel;
 
 const uint  ROAD_BIT             = 0x01u;    // surface pixel is part of any road
@@ -309,4 +310,27 @@ fn void generate_inter_city_roads(RoadRaster* r, Block* block, uint seed) @local
         int target_z = center_pz;
         best_path_draw(r, block, center_px, center_pz, target_x, target_z, 0, &counter, e_seed);
     }
+}
+
+// Public entrypoint: regenerates this block's road raster from scratch and
+// uploads it to the paired R8UI texture. Called by drain_dirty right after
+// generate_heightmap_cpu so heightmap_cpu is primed when the maze /
+// midpoint algorithms sample it. The `scratch` allocator is currently
+// unused — reserved for future on-demand buffers (e.g. shipping lanes).
+fn void generate_roads_for_block(Allocator scratch, Block* block, uint world_seed)
+{
+    block.road.clear();
+
+    if (block_has_city(block.cx, block.cz)) {
+        int footprint = city_size_for_block(block.cx, block.cz);
+        int center_px = BLOCK_HEIGHTMAP_PIXELS / 2;
+        int center_pz = BLOCK_HEIGHTMAP_PIXELS / 2;
+        generate_maze(&block.road, block, center_px, center_pz, footprint, world_seed);
+    }
+
+    generate_inter_city_roads(&block.road, block, world_seed);
+
+    gpu::texture2d_upload(
+        block.road_texture, block.road.pixels.ptr, gpu::Format.R8UI,
+        0, 0, 0, BLOCK_HEIGHTMAP_PIXELS, BLOCK_HEIGHTMAP_PIXELS);
 }
