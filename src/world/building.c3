@@ -18,6 +18,7 @@ const int BLOCK_SIZE_IN_LOTS     = 8;
 const int LOT_PX                 = BLOCK_SIZE_IN_LOTS * BUILDING_TILE_PX;       // 64
 const float WALL_RAD_M           = 0.5f;
 const int BUILDING_NEW_SEA_LEV   = 2;
+const int BUILDING_WALL_HEIGHT   = 3;    // tile-Y levels a wall extrudes above ground
 
 enum ConType : char {
     NONE,
@@ -85,8 +86,10 @@ struct MapNode @packed {
 }
 $assert(MapNode.sizeof == 8);
 
-// Lifecycle. `init` returns void? so Block allocation can unwind on OOM.
-fn void? building_data_init(Block* block, Allocator allocator)
+// Lifecycle. alloc::new_array panics on OOM (unwraps internally); a void
+// return reflects reality. If recoverable OOM becomes a requirement (e.g.
+// for memory-constrained embedded targets), switch to alloc::new_array_try.
+fn void building_data_init(Block* block, Allocator allocator)
 {
     usz n_nodes = (usz)(BUILDING_GRID_X * BUILDING_GRID_Z * BUILDING_GRID_Y);
     usz n_map   = (usz)(BUILDING_GRID_X * BUILDING_GRID_Z);
@@ -309,6 +312,27 @@ fn void phase_roads_and_buildings(Block* block)
                                     0,
                                     WALL_RAD_M + 1.0f,
                                     empty_flags);
+
+                                // Superstructure: extrude wall framework
+                                // upward for WING/MAINHALL tiles. Layer=1,
+                                // WING cons that later phases upgrade to
+                                // DOORWAY/WINDOWFRAME/LANTERN.
+                                if (cur_bt == ConType.WING || cur_bt == ConType.MAINHALL) {
+                                    for (int kk = k + 1; kk < k + 1 + BUILDING_WALL_HEIGHT && kk < BUILDING_GRID_Y; kk++) {
+                                        if (ni < 0 || ni >= BUILDING_GRID_X || nj < 0 || nj >= BUILDING_GRID_Z) continue;
+                                        connect_nodes(
+                                            block,
+                                            i, j, kk,
+                                            ni, nj, kk,
+                                            kk,
+                                            cur_bt,    // preserves WING vs MAINHALL for DOORS phase
+                                            1,
+                                            0,
+                                            1,         // axis_layer=1 (superstructure)
+                                            WALL_RAD_M,
+                                            empty_flags);
+                                    }
+                                }
                             }
                         default:
                             break;
@@ -467,7 +491,6 @@ fn void phase_doors(Block* block)
 fn void phase_fill_terrain(Block* block, Allocator scratch)
 {
     const int PITCH = BLOCK_HEIGHTMAP_PIXELS;
-    const int WALL_HEIGHT = 3;
     usz n_pixels = (usz)(PITCH * PITCH);
     ushort[] mask = alloc::new_array(scratch, ushort, n_pixels);
     defer if (mask.len != 0) alloc::free(scratch, mask.ptr);
@@ -494,7 +517,7 @@ fn void phase_fill_terrain(Block* block, Allocator scratch)
 
             int adjusted_h = (int)block.map_data[j * BUILDING_GRID_X + i].adjusted_height;
             int y_lo = adjusted_h + 1;
-            int y_hi = adjusted_h + WALL_HEIGHT;
+            int y_hi = adjusted_h + BUILDING_WALL_HEIGHT;
             if (y_lo < 0) y_lo = 0;
             if (y_hi > 15) y_hi = 15;
             if (y_lo > y_hi) continue;
@@ -650,9 +673,9 @@ fn void building_emit_to_page(PageGeometry* out, Block* block, Page* page)
                             case ConType.LANTERN:      continue;   // emitted below as LineEntry
                             default:                   mat = voxel::Material.PLASTER;
                         }
-                        // Top-level tile: use SHINGLE.
-                        int roof_k = base_height + 3;   // walls span 3 tiles above ground
-                        if (k >= roof_k - 1 && mat == voxel::Material.PLASTER) {
+                        // Top-level tile: use SHINGLE at the single top wall level.
+                        int roof_k = base_height + BUILDING_WALL_HEIGHT;
+                        if (k == roof_k && mat == voxel::Material.PLASTER) {
                             mat = voxel::Material.SHINGLE;
                         }
 

@@ -131,16 +131,8 @@ fn BlockId BlockPool.get_or_create(&self, BlockCoord cx, BlockCoord cz)
     };
     for (int i = 0; i < HOLDERS_PER_BLOCK * HOLDERS_PER_BLOCK; i++) slot.block.holders[i] = HOLDER_INVALID;
     slot.block.road.init(self.allocator);
-    if (catch building_data_init(&slot.block, self.allocator)) {
-        // Unwind: release anything we've allocated before wiring the slot up.
-        if (hm_cpu.len != 0) alloc::free(self.allocator, hm_cpu.ptr);
-        gpu::texture2d_destroy(hm);
-        gpu::texture2d_destroy(road_tex);
-        gpu::texture2d_destroy(building_tex);
-        slot.block.road.free();
-        building_data_free(&slot.block, self.allocator);
-        return BLOCK_INVALID;
-    }
+    // alloc::new_array panics on OOM — recoverable unwind isn't reachable.
+    building_data_init(&slot.block, self.allocator);
     if (idx == self.storage.len()) {
         self.storage.push(slot);
     } else {
