@@ -136,7 +136,7 @@ fn Texture3D texture3d_create(Texture3DDesc desc)
     if (idx == MAX_TEXTURES) return TEXTURE3D_INVALID;
 
     int levels = desc.levels < 1 ? 1 : desc.levels;
-    int filter = (desc.fmt == Format.R8UI) ? (int)gl::GL_NEAREST : (int)gl::GL_LINEAR;
+    int filter = (desc.fmt == Format.R8UI || desc.fmt == Format.R16UI) ? (int)gl::GL_NEAREST : (int)gl::GL_LINEAR;
 
     uint id;
     gl::createTextures((GLenum)gl::GL_TEXTURE_3D, 1, &id);
