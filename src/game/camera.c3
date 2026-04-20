@@ -55,7 +55,12 @@ const float ISO_TILT = 0.2886751f;
 
 fn core::Vec3 world_xz_to_screen(core::Vec3 pan_target, float zoom, float world_x, float world_y, float world_z) @inline
 {
+    // Standard iso convention: higher world-Y maps to higher screen-Y.
+    // Previously used `- world_y` which inverted Y — taller things
+    // appeared at screen-bottom. Flip re-inverts: roof at top, ground
+    // at bottom. Requires the raymarch unprojection + iso_bbox to
+    // match (see src/voxel/raymarch.c3 and raymarch.comp.glsl).
     float sx = zoom * ((world_x - pan_target.x) - (world_z - pan_target.z));
-    float sy = zoom * (-ISO_TILT * ((world_x - pan_target.x) + (world_z - pan_target.z)) - world_y);
+    float sy = zoom * (-ISO_TILT * ((world_x - pan_target.x) + (world_z - pan_target.z)) + world_y);
     return { sx, sy, 0.0f };
 }
