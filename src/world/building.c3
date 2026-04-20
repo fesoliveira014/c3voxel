@@ -548,3 +548,22 @@ fn void smooth_heights(Block* block)
         if (!changed) break;
     }
 }
+
+// Public entrypoint: wires all M7.4 phases together. Called by drain_dirty
+// immediately after generate_roads_for_block so map_data can be derived
+// from block.road.pixels + block.heightmap_cpu in phase 1. The phase order
+// is load-bearing — selection depends on map_data seeded by phase 1; roads
+// / wing tips / doors all read the connection_props set up by phase 2.
+fn void buildings_generate_for_block(Block* block, Allocator scratch, uint world_seed)
+{
+    if (!block.buildings_dirty) return;
+    building_data_clear(block);
+    build_map_data(block);
+    select_buildings(block, world_seed);
+    smooth_heights(block);
+    phase_roads_and_buildings(block);
+    phase_wing_tips(block);
+    phase_doors(block);
+    phase_fill_terrain(block, scratch);
+    block.buildings_dirty = false;
+}

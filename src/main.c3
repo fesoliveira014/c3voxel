@@ -283,6 +283,7 @@ fn void drain_dirty(
         if (block.heightmap_dirty) {
             world::generate_heightmap_cpu(mem, block, 1337u);
             world::generate_roads_for_block(mem, block, 1337u);
+            world::buildings_generate_for_block(block, mem, 1337u);
         }
 
         float block_origin_x = (float)(int)block.cx * (float)world::BLOCK_HEIGHTMAP_PIXELS;
