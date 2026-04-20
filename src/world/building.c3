@@ -108,3 +108,71 @@ fn void building_data_clear(Block* block)
     for (usz i = 0; i < block.building_data.len; i++) block.building_data[i] = {};
     for (usz i = 0; i < block.map_data.len; i++)      block.map_data[i]      = {};
 }
+
+// Phase 1: populate map_data from block.road.pixels + block.heightmap_cpu.
+// Road tiles get all four connection_props tagged ROAD and adjusted_height
+// clamped to 0 (roads don't drive building height). Non-road tiles seed
+// adjusted_height from heightmap_cpu, rescaled from world units to tile
+// units so subsequent phases can reason in tile-Y.
+fn void build_map_data(Block* block)
+{
+    int pitch    = BLOCK_HEIGHTMAP_PIXELS;
+    int hm_pitch = pitch;
+    for (int j = 0; j < BUILDING_GRID_Z; j++) {
+        for (int i = 0; i < BUILDING_GRID_X; i++) {
+            int cx_px = i * BUILDING_TILE_PX + BUILDING_TILE_PX / 2;
+            int cz_px = j * BUILDING_TILE_PX + BUILDING_TILE_PX / 2;
+            MapNode* m = &block.map_data[j * BUILDING_GRID_X + i];
+            char road_bit = block.road.pixels[cz_px * pitch + cx_px] & (char)ROAD_BIT;
+            if (road_bit != 0) {
+                m.connection_props[0] = ConType.ROAD;
+                m.connection_props[1] = ConType.ROAD;
+                m.connection_props[2] = ConType.ROAD;
+                m.connection_props[3] = ConType.ROAD;
+                m.adjusted_height = 0.0f;
+            } else {
+                float h01 = block.heightmap_cpu[cz_px * hm_pitch + cx_px];
+                // MAX_HEIGHT is 128 world units; tile height units = world/TILE_PX.
+                m.adjusted_height = h01 * 128.0f / (float)BUILDING_TILE_PX;
+                m.connection_props[0] = ConType.NONE;
+                m.connection_props[1] = ConType.NONE;
+                m.connection_props[2] = ConType.NONE;
+                m.connection_props[3] = ConType.NONE;
+            }
+        }
+    }
+}
+
+// Phase 3: clamp neighbour height deltas to 1 tile and floor to the new sea
+// level. Iterative because a single pass can leave cascading deltas; loop
+// exits early once a pass makes no changes.
+fn void smooth_heights(Block* block)
+{
+    int[4] dir_x = { 1, -1,  0,  0 };
+    int[4] dir_z = { 0,  0,  1, -1 };
+    for (int pass = 0; pass < BUILDING_HEIGHT_ITERS; pass++) {
+        bool changed = false;
+        for (int j = 0; j < BUILDING_GRID_Z; j++) {
+            for (int i = 0; i < BUILDING_GRID_X; i++) {
+                MapNode* m = &block.map_data[j * BUILDING_GRID_X + i];
+                float p = m.adjusted_height;
+                for (int d = 0; d < 4; d++) {
+                    int ni = i + dir_x[d];
+                    int nj = j + dir_z[d];
+                    if (ni < 0 || ni >= BUILDING_GRID_X || nj < 0 || nj >= BUILDING_GRID_Z) continue;
+                    float nh = block.map_data[nj * BUILDING_GRID_X + ni].adjusted_height;
+                    if (nh > p) p = nh;
+                }
+                if (p - m.adjusted_height > 1.0f) {
+                    m.adjusted_height = p - 1.0f;
+                    changed = true;
+                }
+                if ((float)BUILDING_NEW_SEA_LEV > m.adjusted_height) {
+                    m.adjusted_height = (float)BUILDING_NEW_SEA_LEV;
+                    changed = true;
+                }
+            }
+        }
+        if (!changed) break;
+    }
+}
