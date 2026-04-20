@@ -194,13 +194,18 @@ fn void flatten_tree(PlantNodeList* scratch, PageGeometry* out, voxel::Material 
         }
         PlantNode parent = (*scratch)[(usz)parent_idx];
 
-        // For real parents, p0 = parent midpoint (Bezier anchor). For nodes
-        // directly parented by the virtual seed, using the seed's midpoint
-        // puts p0 above (or below, for roots) the ground — tree appears to
-        // float. VQ's initTree uses the parent's endPoint in that case, which
-        // coincides with this node's beg_point (the base of the trunk).
+        // For real parents, p0 = parent midpoint (Bezier anchor). For
+        // nodes directly parented by the virtual seed, we want the chord
+        // from the ground origin up to the trunk junction. Previously
+        // used parent.end_point which equals this node's beg_point,
+        // making p0 == p2 — chord_sq ≈ 0, shader's degenerate-chord
+        // branch fires, and the trunk never renders. The gen-1+
+        // branches then float in the air at y=parent.end_point.y.
+        // Using parent.beg_point (the seed's origin, i.e. ground level)
+        // gives a real non-degenerate chord that paints trunk wood all
+        // the way down to the ground.
         core::Vec3 p0_v = parent.is_root_node
-            ? parent.end_point
+            ? parent.beg_point
             : vec3_lerp(parent.beg_point, parent.end_point, 0.5f);
         core::Vec3 p1_v = vec3_lerp(n.beg_point, n.end_point, 0.5f);
         core::Vec3 p2_v = n.beg_point;
@@ -326,13 +331,14 @@ fn void plant_generate_page(
         if (tile_is_built(block, wx, wz)) continue;
 
         uint type_h = voxel::voronoi_hash(px, pz, world_seed, (uint)(i + 100));
-        voxel::PlantType type = (voxel::PlantType)(type_h % (uint)voxel::PLANT_TYPE_COUNT);
-        // Prefer trunk variants 3:1 over roots so surface density matches visual expectation.
-        if (type == voxel::PlantType.OAK_ROOTS
-            || type == voxel::PlantType.OAK2_ROOTS
-            || type == voxel::PlantType.BARE_OAK_ROOTS) {
-            type = (voxel::PlantType)(((type_h >> 8) % 3u) * 2u);
-        }
+        // Only leafy trunks at the surface — BARE_OAK_TRUNK (sphere_gen=-1)
+        // produces trunks with no leaves, which read as "cutoff stumps".
+        // Roots variants are always underground and invisible under flat
+        // terrain, so skip them too. Cycle between the two leafy variants.
+        uint trunk_pick = type_h & 1u;
+        voxel::PlantType type = trunk_pick == 0u
+            ? voxel::PlantType.OAK_TRUNK
+            : voxel::PlantType.OAK2_TRUNK;
 
         uint tree_seed = voxel::voronoi_hash(px, pz, world_seed, (uint)(i + 2000));
         plant_grow_tree(out, scratch, type, { wx, wy, wz }, tree_seed);

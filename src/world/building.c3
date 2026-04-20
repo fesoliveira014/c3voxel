@@ -159,6 +159,18 @@ fn void build_map_data(Block* block)
 
 // Flat index into the 3D building_data grid (x-major, then z, then y).
 // Callers clamp to grid bounds; this helper does no bounds checking.
+// Real footprint: all 4 connection_props are WING/MAINHALL (set by
+// select_buildings for the whole footprint). "Perimeter tag" tiles
+// (outside tiles where select_buildings set only +X or +Z) fail this.
+fn bool is_real_footprint(MapNode* m) @local
+{
+    for (int d = 0; d < 4; d++) {
+        ConType t = m.connection_props[d];
+        if (t != ConType.WING && t != ConType.MAINHALL) return false;
+    }
+    return true;
+}
+
 fn int node_index(int i, int j, int k)
 {
     return k * BUILDING_GRID_X * BUILDING_GRID_Z + j * BUILDING_GRID_X + i;
@@ -301,6 +313,34 @@ fn void select_buildings(Block* block, uint world_seed)
                         m.connection_props[3] = kind;
                     }
                 }
+
+                // Walls emit only from +X / +Z slots, so the -X / -Z
+                // perimeter walls of a building need the OUTSIDE tile on
+                // that side to carry WING in its +X / +Z slot and match
+                // the footprint height. Without this, buildings render as
+                // two-sided (only east/south walls visible, west/north
+                // walls absent). We peek out one tile in each -axis
+                // direction.
+                for (int jj = pos_j; jj < pos_j + foot_h; jj++) {
+                    int outside_i = pos_i - 1;
+                    if (outside_i >= 0) {
+                        MapNode* om = &block.map_data[jj * BUILDING_GRID_X + outside_i];
+                        if (om.connection_props[0] == ConType.NONE) {
+                            om.connection_props[0] = ConType.WING;
+                            om.adjusted_height = footprint_mean;
+                        }
+                    }
+                }
+                for (int ii = pos_i; ii < pos_i + foot_w; ii++) {
+                    int outside_j = pos_j - 1;
+                    if (outside_j >= 0) {
+                        MapNode* om = &block.map_data[outside_j * BUILDING_GRID_X + ii];
+                        if (om.connection_props[2] == ConType.NONE) {
+                            om.connection_props[2] = ConType.WING;
+                            om.adjusted_height = footprint_mean;
+                        }
+                    }
+                }
             }
         }
     }
@@ -328,16 +368,14 @@ fn void phase_roads_and_buildings(Block* block)
                     MapNode* nbr = &block.map_data[nj * BUILDING_GRID_X + ni];
                     int test_val_2 = (int)nbr.adjusted_height;
 
-                    // Perimeter-only gate: walls are emitted on edges where
-                    // EXACTLY one tile is inside a building footprint. An
-                    // edge between two footprint tiles is an interior edge
-                    // (the whole room is the same building) — no wall.
-                    // ROAD→building edges still fire (exterior wall with
-                    // possible DOORWAY upgrade later).
-                    ConType nbr_bt = nbr.connection_props[0];
-                    bool cur_is_wing = cur_bt == ConType.WING || cur_bt == ConType.MAINHALL;
-                    bool nbr_is_wing = nbr_bt == ConType.WING || nbr_bt == ConType.MAINHALL;
-                    if (cur_is_wing && nbr_is_wing) continue;
+                    // Perimeter-only gate: skip edges where BOTH endpoints
+                    // are real footprint tiles (all 4 cprops set). Outside
+                    // tiles tagged by select_buildings to emit a -X/-Z
+                    // perimeter wall (single +X or +Z slot set) don't count
+                    // as footprint for this purpose, so the wall fires.
+                    bool cur_is_footprint = is_real_footprint(cur);
+                    bool nbr_is_footprint = is_real_footprint(nbr);
+                    if (cur_is_footprint && nbr_is_footprint) continue;
 
                     switch (cur_bt) {
                         case ConType.ROAD:
