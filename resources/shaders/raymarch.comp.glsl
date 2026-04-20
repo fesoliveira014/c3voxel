@@ -89,16 +89,8 @@ void main()
             tfs[i] = 1.0e30;
         } else {
             vec2 t = aabb_intersect(ro, rd, page_world_min[i].xyz, page_world_max[i].xyz);
-            // Reject floor-graze: rays that enter the AABB via the Y=0 slab
-            // (as opposed to the top face) are iso-corner rays outside the
-            // parallelogram footprint. Their tn lands at y≈0; legit top-face
-            // entries have y≈volume_max_y.
-            float tn_clamp   = max(t.x, 0.0);
-            float entry_y    = ro.y + rd.y * tn_clamp;
-            float top_y      = page_world_max[i].y;
-            bool  entered_top = entry_y > top_y - 1.0;
-            if (t.y > tn_clamp && entered_top) {
-                tns[i] = tn_clamp;
+            if (t.y > max(t.x, 0.0)) {
+                tns[i] = max(t.x, 0.0);
                 tfs[i] = t.y;
             } else {
                 tns[i] = 1.0e30;
