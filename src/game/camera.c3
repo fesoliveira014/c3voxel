@@ -56,6 +56,13 @@ const float ISO_TILT = 0.2886751f;
 fn core::Vec3 world_xz_to_screen(core::Vec3 pan_target, float zoom, float world_x, float world_y, float world_z) @inline
 {
     float sx = zoom * ((world_x - pan_target.x) - (world_z - pan_target.z));
-    float sy = zoom * (-ISO_TILT * ((world_x - pan_target.x) + (world_z - pan_target.z)) - world_y);
+    // y-up screen: higher world_y → higher sy. The view direction stays
+    // (1, -2T, 1) (camera above-NW, looking down-SE); a point at
+    // wy = VOLUME_PITCH projects to sy = +VOLUME_PITCH (screen top). Every
+    // downstream consumer (compute_holder_screen_rect, iso_bbox in raymarch,
+    // shader unprojection, screen_to_world_xz in visibility) matches this
+    // sign convention — if any one is flipped, tall geometry renders upside
+    // down around its base while flat terrain still reads as correct.
+    float sy = zoom * (ISO_TILT * ((world_x - pan_target.x) + (world_z - pan_target.z)) + world_y);
     return { sx, sy, 0.0f };
 }

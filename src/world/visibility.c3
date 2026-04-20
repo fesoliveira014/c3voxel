@@ -19,7 +19,7 @@ fn core::Vec3 screen_to_world_xz(core::Vec3 pan_target, float zoom, float screen
 {
     float s = screen_x / zoom;
     float t = screen_y / zoom;
-    float u = -t / ISO_TILT;
+    float u = t / ISO_TILT;
     float wx = (u + s) * 0.5f;
     float wz = (u - s) * 0.5f;
     return { pan_target.x + wx, 0.0f, pan_target.z + wz };

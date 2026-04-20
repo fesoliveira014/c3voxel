@@ -58,15 +58,15 @@ void main()
     float sx = mix(iso_bbox.x, iso_bbox.z, frac_u);
     float sy = mix(iso_bbox.y, iso_bbox.w, frac_v);
 
-    // Unproject at y_start = volume_max_y (top plane of the holder volume).
-    // Rays from iso-bbox CORNERS (outside the parallelogram) then originate
-    // at/below the volume in XZ, so aabb_intersect returns tn<0 or tf<=0
-    // and the corner pixels stay transparent. With y_start = 2*volume_max_y
-    // those corner rays grazed the volume's Y=0 floor slab and painted
-    // terrain-at-floor, causing off-centre holders to render flat banding
-    // across their entire FBO rectangle.
+    // y-up sy convention: sy = T*(dx+dz) + wy. Solve for (dx+dz) at the ray's
+    // starting plane y = y_start (top of holder volume). Ray still marches
+    // downward — rd.y < 0, camera above, y_start at the top face — so corner
+    // pixels outside the iso parallelogram originate at/outside the volume
+    // in XZ and grazing-miss in aabb_intersect. A prior attempt flipped the
+    // ray to start at y=0 and march upward; that made the ground voxel the
+    // first opaque hit for every pixel and painted terrain as a solid slab.
     float y_start = volume_max_y;
-    float sum     = -(sy + y_start) / T;       // dx + dz
+    float sum     = (sy - y_start) / T;         // dx + dz
     float diff    = sx;                          // dx - dz
     float dx0     = 0.5 * (diff + sum);
     float dz0     = 0.5 * (sum  - diff);
