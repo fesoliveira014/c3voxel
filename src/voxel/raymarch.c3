@@ -61,11 +61,7 @@ fn void RayMarchContext.dispatch_holder(
 
     RayMarchUniforms u = {
         .holder_center   = { cx, 0.0f, cz, 0.0f },
-        // With the Y-corrected projection (sy = -tilt*(dx+dz) + wy):
-        //   sx range  : [-extent, extent]  (unchanged, independent of wy)
-        //   sy min    : -tilt*extent + 0        (front corner, ground)
-        //   sy max    : +tilt*extent + vol_max_y (back corner, volume top)
-        .iso_bbox        = { -extent, -tilt * extent, extent, tilt * extent + vol_max_y },
+        .iso_bbox        = { -extent, -tilt * extent - vol_max_y, extent, tilt * extent },
         .page_world_min  = {
             pages[0] != null ? pages[0].world_min : (core::Vec4){ 0.0f, 0.0f, 0.0f, 0.0f },
             pages[1] != null ? pages[1].world_min : (core::Vec4){ 0.0f, 0.0f, 0.0f, 0.0f },

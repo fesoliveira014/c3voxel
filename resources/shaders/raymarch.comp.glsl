@@ -58,23 +58,21 @@ void main()
     float sx = mix(iso_bbox.x, iso_bbox.z, frac_u);
     float sy = mix(iso_bbox.y, iso_bbox.w, frac_v);
 
-    // Iso projection is now sy = -tilt*(dx+dz) + wy (Y-corrected: higher
-    // world-y maps to higher screen-y). Inverting at wy = y_start:
-    //   dx + dz = (y_start - sy) / T
-    // Ray direction keeps (sx, sy) constant: d(sx)/dt = a-c = 0 → a=c,
-    // d(sy)/dt = -T*(a+c) + b = 0 → b = +2*T*a. Forward-into-scene is
-    // +x, +z, +y (camera is ground-ish looking into the scene from
-    // below-front). Ray origin sits on the Y=0 floor so iso-bbox corners
-    // outside the parallelogram originate below/beside the volume and
-    // cleanly fail aabb_intersect.
-    float y_start = 0.0;
-    float sum     = (y_start - sy) / T;          // dx + dz
-    float diff    = sx;                            // dx - dz
+    // Unproject at y_start = volume_max_y (top plane of the holder volume).
+    // Rays from iso-bbox CORNERS (outside the parallelogram) then originate
+    // at/below the volume in XZ, so aabb_intersect returns tn<0 or tf<=0
+    // and the corner pixels stay transparent. With y_start = 2*volume_max_y
+    // those corner rays grazed the volume's Y=0 floor slab and painted
+    // terrain-at-floor, causing off-centre holders to render flat banding
+    // across their entire FBO rectangle.
+    float y_start = volume_max_y;
+    float sum     = -(sy + y_start) / T;       // dx + dz
+    float diff    = sx;                          // dx - dz
     float dx0     = 0.5 * (diff + sum);
     float dz0     = 0.5 * (sum  - diff);
 
     vec3 ro = vec3(holder_center.x + dx0, y_start, holder_center.z + dz0);
-    vec3 rd = normalize(vec3(1.0, 2.0 * T, 1.0));
+    vec3 rd = normalize(vec3(1.0, -2.0 * T, 1.0));
 
     vec4  color = vec4(0.0);
     float hit_y = -1.0e30;
