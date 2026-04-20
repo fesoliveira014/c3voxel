@@ -289,10 +289,17 @@ fn void plant_grow_tree(
                 || type == voxel::PlantType.BARE_OAK_ROOTS;
     core::Vec3 initial_tangent = is_root ? (core::Vec3){ 0.0f, -1.0f, 0.0f } : (core::Vec3){ 0.0f, 1.0f, 0.0f };
 
+    // Trunk (seed) is stretched by this factor so the first branching
+    // level sits well above the ground; gen-0..gen-2 still use
+    // rules.branch_length[cur_gen] for their own segment lengths, so the
+    // canopy size is unaffected. Visually: visible trunk between terrain
+    // and canopy instead of leaf spheres sitting on the dirt.
+    const float TRUNK_BOOST = 2.5f;
     float cur_length_0 = rules.branch_length[0];
+    float trunk_len    = cur_length_0 * TRUNK_BOOST;
     PlantNode seed_node = {
         .beg_point     = origin,
-        .end_point     = vec3_add(origin, vec3_scale(initial_tangent, cur_length_0)),
+        .end_point     = vec3_add(origin, vec3_scale(initial_tangent, trunk_len)),
         .tangent       = initial_tangent,
         .base_shoot    = { 1.0f, 0.0f, 0.0f },
         .beg_thickness = rules.beg_thickness,
@@ -387,21 +394,24 @@ fn void plant_emit_trees_from(
 
         if (is_home) continue;
 
-        // Filter appended branches by XZ AABB overlap with the home page.
-        // Swap-with-last + pop; branch order within SSBO doesn't matter
-        // (shader iterates unconditionally).
-        usz r = out.tree.len();
-        while (r > len_before) {
-            r--;
+        // Forward-compact filter: iterate appended range [len_before, len()),
+        // keep entries whose vis-AABB overlaps home's XZ bbox at write
+        // index `w`, then truncate. Using an in-place compaction with a
+        // single write pointer makes the loop correct for any pattern of
+        // pass/fail — the earlier swap-with-last variant could skip
+        // re-checking a just-moved entry.
+        usz w = len_before;
+        usz n = out.tree.len();
+        for (usz r = len_before; r < n; r++) {
             voxel::TreeEntry e = out.tree[r];
             bool ov = e.vis_max.x >= home_x0 && e.vis_min.x <= home_x1
                    && e.vis_max.z >= home_z0 && e.vis_min.z <= home_z1;
-            if (!ov) {
-                usz last = out.tree.len() - 1;
-                if (r != last) out.tree.set(r, out.tree[last]);
-                (void)out.tree.pop();
+            if (ov) {
+                if (w != r) out.tree.set(w, e);
+                w++;
             }
         }
+        while (out.tree.len() > w) (void)out.tree.pop();
     }
 }
 

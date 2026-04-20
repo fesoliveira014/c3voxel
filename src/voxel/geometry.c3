@@ -2,7 +2,14 @@ module c3voxel::voxel;
 
 import c3voxel::core;
 
-const int MAX_ENTRIES_PER_PAGE = 1024;
+// 4096 entries × (tree | geom | line) SSBO. Post-M7.4 cross-page tree
+// emit folds canopy branches from the 3×3 page neighbourhood into each
+// page's tree SSBO; for a page with corner trees near 4 holders, ~9
+// source pages × 5–8 trees × ~60 branches per tree tops out around 2–3k
+// entries before the shader truncates at the cap. With 1024 the tail of
+// the list was silently dropped and canopies appeared sliced at holder
+// corners.
+const int MAX_ENTRIES_PER_PAGE = 4096;
 
 // Material reference carried by every entry. 16 B, std430 / std140-compatible.
 struct MaterialParams @packed {

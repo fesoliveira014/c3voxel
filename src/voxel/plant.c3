@@ -32,18 +32,22 @@ struct PlantRules {
 const float PLANT_PI = (float)math::PI;
 
 const PlantRules[PLANT_TYPE_COUNT] PLANT_TABLE = {
-    // OAK_TRUNK — ported from VQ f00341_gameplant.hpp verbatim. With the VQ
-    // `cur_gen < num_generations` recursion semantics, a tree with
-    // num_generations=2 produces children at gens 0, 1, 2. sphere_gen=2 puts
-    // spheres on the deepest level (tips of the final branches).
+    // OAK_TRUNK — VQ-derived oak. Tuned post-M7.4 for a taller trunk +
+    // tighter rounder canopy (prior `branch_length = {6, 8, 8}` with
+    // sphere_rad 6 and num_children up to 5 gave a wide flat canopy
+    // and a stubby 6-voxel trunk; also generated ~58 branches per tree,
+    // inflating the per-page tree SSBO past its cap at holder corners
+    // where the 3×3 cross-page emit piles up). Canopy radius now ≈ 16
+    // world units (bl[1]+bl[2]+sphere); trunk seed doubled in
+    // plant_grow_tree so the trunk itself is visible below the canopy.
     {
-        .num_children       = { 2.0f, 5.0f },
+        .num_children       = { 2.0f, 3.0f },
         .divergence_angle_v = { PLANT_PI / 3.0f, PLANT_PI / 6.0f },
         .beg_thickness      = 1.0f,
         .end_thickness      = 0.4f,
-        .branch_length      = { 6.0f, 8.0f, 8.0f, 0.0f, 0.0f, 0.0f },
+        .branch_length      = { 5.0f, 5.0f, 5.0f, 0.0f, 0.0f, 0.0f },
         .sphere_gen         = 2,
-        .sphere_rad         = 6.0f,
+        .sphere_rad         = 3.5f,
         .num_generations    = 2,
         .angle_uniformity_u = 0.75f,
         .branch_material    = Material.WOOD,
@@ -63,15 +67,16 @@ const PlantRules[PLANT_TYPE_COUNT] PLANT_TABLE = {
         .branch_material    = Material.WOOD,
         .leaf_material      = Material.NULL,
     },
-    // OAK2_TRUNK — stockier variant, slightly wider divergence
+    // OAK2_TRUNK — stockier variant, slightly wider divergence.
+    // Same branch-count / canopy rebalance as OAK_TRUNK.
     {
-        .num_children       = { 3.0f, 5.0f },
+        .num_children       = { 2.0f, 3.0f },
         .divergence_angle_v = { PLANT_PI / 2.5f, PLANT_PI / 5.0f },
         .beg_thickness      = 1.4f,
         .end_thickness      = 0.5f,
-        .branch_length      = { 5.0f, 7.0f, 7.0f, 0.0f, 0.0f, 0.0f },
+        .branch_length      = { 4.0f, 4.5f, 4.5f, 0.0f, 0.0f, 0.0f },
         .sphere_gen         = 2,
-        .sphere_rad         = 7.0f,
+        .sphere_rad         = 4.0f,
         .num_generations    = 2,
         .angle_uniformity_u = 0.7f,
         .branch_material    = Material.WOOD,
