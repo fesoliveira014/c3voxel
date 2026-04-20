@@ -369,6 +369,16 @@ fn void generate_roads_for_block(Allocator scratch, Block* block, uint world_see
     block.road.clear();
 
     if (block_has_city(block.cx, block.cz)) {
+        // Main-road overlay (M7.4): straight grid every LOT_PX pixels, drawn
+        // before the maze. Creates lots that M7.4's building selector fills.
+        int step = LOT_PX;
+        for (int z = 0; z < BLOCK_HEIGHTMAP_PIXELS; z += step) {
+            draw_segment(&block.road, 0, z, BLOCK_HEIGHTMAP_PIXELS - 1, z, (char)ROAD_BIT);
+        }
+        for (int x = 0; x < BLOCK_HEIGHTMAP_PIXELS; x += step) {
+            draw_segment(&block.road, x, 0, x, BLOCK_HEIGHTMAP_PIXELS - 1, (char)ROAD_BIT);
+        }
+
         int footprint = city_size_for_block(block.cx, block.cz);
         int center_px = BLOCK_HEIGHTMAP_PIXELS / 2;
         int center_pz = BLOCK_HEIGHTMAP_PIXELS / 2;
