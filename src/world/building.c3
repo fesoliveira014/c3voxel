@@ -438,42 +438,55 @@ fn void phase_wing_tips(Block* block)
 // the M8 plan refines placement.
 fn void phase_doors(Block* block)
 {
-    int[4] dir_x = { 1, -1, 0, 0 };
-    int[4] dir_z = { 0, 0, 1, -1 };
-    ConFlags empty_flags = {};
+    int[4] dir_x      = { 1, -1, 0, 0 };
+    int[4] dir_z      = { 0,  0, 1, -1 };
+    // CANONICAL base_dir encoding: +X=0, -X=1, +Y=2, -Y=3, +Z=4, -Z=5.
+    // phase_doors iterates horizontal directions (m=0..3 in "NSEW" order)
+    // which must be translated to the canonical slot indices. Earlier drafts
+    // used `m` directly as the base_dir offset — this wrote +Z and -Z into
+    // the +Y and -Y vertical slots, which emission never reads.
+    int[4] base_dir_m = { 0, 1, 4, 5 };
+    ConFlags empty_flags  = {};
+    ConFlags inside_flags = { .inside = true };
+
     for (int k = 0; k < BUILDING_GRID_Y; k++) {
         for (int j = 0; j < BUILDING_GRID_Z; j++) {
             for (int i = 0; i < BUILDING_GRID_X; i++) {
                 for (int m = 0; m < 4; m++) {
-                    int slot = 1 * BUILDING_NODE_DIRS + m;
-                    BuildingCon* c = &block.building_data[node_index(i, j, k)].con[slot];
-                    if (c.con_type != ConType.WING) continue;
+                    int base_dir = base_dir_m[m];
+                    int slot = 1 * BUILDING_NODE_DIRS + base_dir;
+                    BuildingCon cur = block.building_data[node_index(i, j, k)].con[slot];
+                    if (cur.con_type != ConType.WING) continue;
 
                     int ni = i + dir_x[m];
                     int nj = j + dir_z[m];
                     if (ni < 0 || ni >= BUILDING_GRID_X || nj < 0 || nj >= BUILDING_GRID_Z) continue;
-                    ConType neighbour_bt = block.map_data[nj * BUILDING_GRID_X + ni].connection_props[m];
-                    int ord = (int)neighbour_bt.ordinal;
-                    if (ord >= 0 && ord < CON_TYPE_COUNT && CON_TYPE_CLASSES[ord] == ConClass.CTC_ROAD) {
-                        c.con_type = ConType.DOORWAY;
-                    } else {
-                        c.con_type = ConType.WINDOWFRAME;
-                        // Attach a lantern pointing -Y (interior) if there's
-                        // room below. connect_nodes handles out-of-bounds.
-                        if (k - 1 >= 0) {
-                            connect_nodes(
-                                block,
-                                i, j, k,
-                                i, j, k - 1,
-                                k - 1,
-                                ConType.LANTERN,
-                                0,
-                                -1,
-                                1,
-                                WALL_RAD_M,
-                                empty_flags);
-                        }
-                    }
+
+                    // Neighbour tile's map_data — roads get all 4
+                    // connection_props[*] = ROAD in build_map_data, so the
+                    // slot index doesn't matter for this check.
+                    ConType nbr_bt = block.map_data[nj * BUILDING_GRID_X + ni].connection_props[0];
+                    bool nbr_is_road = nbr_bt == ConType.ROAD;
+
+                    ConType new_bt = nbr_is_road ? ConType.DOORWAY : ConType.WINDOWFRAME;
+                    int cur_dir = (m % 2 == 0) ? 1 : -1;
+
+                    // Use connect_nodes so both endpoints mirror. Lantern-
+                    // hosting is signalled by the `inside` flag on the
+                    // WINDOWFRAME connection itself (building_emit_to_page
+                    // reads the flag and emits the lantern LineEntry).
+                    ConFlags upgrade_flags = (!nbr_is_road && cur_dir == 1) ? inside_flags : empty_flags;
+                    connect_nodes(
+                        block,
+                        i, j, k,
+                        ni, nj, k,
+                        k,
+                        new_bt,
+                        cur_dir,
+                        0,
+                        1,          // axis_layer = 1 (superstructure)
+                        WALL_RAD_M,
+                        upgrade_flags);
                 }
             }
         }
@@ -697,37 +710,42 @@ fn void building_emit_to_page(PageGeometry* out, Block* block, Page* page)
                             },
                         };
                         out.geom.push(e);
-                    }
-                }
 
-                // LANTERN emission — Y-axis-layer-1 slot 3 (= -Y in superstructure).
-                BuildingCon lantern = node.con[BUILDING_NODE_DIRS + 3];
-                if (lantern.con_type == ConType.LANTERN) {
-                    float cx = block_origin_x + ((float)i + 0.5f) * tile_px_f;
-                    float cz = block_origin_z + ((float)j + 0.5f) * tile_px_f;
-                    float cy = ((float)k + 0.5f) * tile_px_f;
-                    core::Vec4 origin_v  = { cx, cy, cz, 0.0f };
-                    core::Vec4 tangent_v = { 0.0f, 1.0f, 0.0f, 0.0f };
-                    core::Vec4 bmin = { cx - 1.0f, cy - 1.0f, cz - 1.0f, 0.0f };
-                    core::Vec4 bmax = { cx + 1.0f, cy + 1.0f, cz + 1.0f, 0.0f };
-                    voxel::LineEntry l = {
-                        .vis_min      = bmin,
-                        .vis_max      = bmax,
-                        .origin       = origin_v,
-                        .tangent      = tangent_v,
-                        .bitangent    = { 1.0f, 0.0f, 0.0f, 0.0f },
-                        .normal       = { 0.0f, 0.0f, 1.0f, 0.0f },
-                        .rad0         = { 0.3f, 0.0f, 0.0f, 0.0f },
-                        .rad1         = { 0.5f, 0.0f, 0.0f, 0.0f },
-                        .center_point = origin_v,
-                        .mat          = {
-                            .material_id = (float)voxel::Material.METAL.ordinal,
-                            .normal_id = 0.0f,
-                            .modifier = 0.0f,
-                            ._pad = 0.0f,
-                        },
-                    };
-                    out.line.push(l);
+                        // Lantern: only on WINDOWFRAME connections whose
+                        // `inside` flag is set (phase_doors marks only the
+                        // +X/+Z side of each pair). One lantern per window,
+                        // positioned slightly on the interior side of the
+                        // wall midpoint.
+                        if (con.con_type == ConType.WINDOWFRAME && con.flags.inside) {
+                            float interior_off_x = dx == 1 ? -2.0f : 0.0f;
+                            float interior_off_z = dz == 1 ? -2.0f : 0.0f;
+                            float lx = cx + interior_off_x;
+                            float lz = cz + interior_off_z;
+                            float ly = cy;
+                            core::Vec4 origin_v  = { lx, ly, lz, 0.0f };
+                            core::Vec4 tangent_v = { 0.0f, 1.0f, 0.0f, 0.0f };
+                            core::Vec4 lmin = { lx - 1.0f, ly - 1.0f, lz - 1.0f, 0.0f };
+                            core::Vec4 lmax = { lx + 1.0f, ly + 1.0f, lz + 1.0f, 0.0f };
+                            voxel::LineEntry l = {
+                                .vis_min      = lmin,
+                                .vis_max      = lmax,
+                                .origin       = origin_v,
+                                .tangent      = tangent_v,
+                                .bitangent    = { 1.0f, 0.0f, 0.0f, 0.0f },
+                                .normal       = { 0.0f, 0.0f, 1.0f, 0.0f },
+                                .rad0         = { 0.3f, 0.0f, 0.0f, 0.0f },
+                                .rad1         = { 0.5f, 0.0f, 0.0f, 0.0f },
+                                .center_point = origin_v,
+                                .mat          = {
+                                    .material_id = (float)voxel::Material.METAL.ordinal,
+                                    .normal_id = 0.0f,
+                                    .modifier = 0.0f,
+                                    ._pad = 0.0f,
+                                },
+                            };
+                            out.line.push(l);
+                        }
+                    }
                 }
             }
         }
