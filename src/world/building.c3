@@ -2,6 +2,7 @@ module c3voxel::world;
 
 import std::core::mem::alloc;
 
+import c3voxel::gpu;
 import c3voxel::voxel;
 
 const int BUILDING_TILE_PX       = 8;
@@ -452,6 +453,66 @@ fn void phase_doors(Block* block)
             }
         }
     }
+}
+
+// Phase 7: build the 512×512 R16UI interior-occupancy mask from this block's
+// building_data and upload it to `building_interior_tex`. Each pixel's
+// ushort is a bitmask over 16 Y-layers; bit Y is set when that tile's
+// footprint contains interior voxels at that Y. For M7.4 the wall height
+// is a flat 3 Y-levels above the tile's adjusted_height.
+//
+// Memory: 512×512×2 = 512 KiB — allocated via the scratch allocator to keep
+// the stack small.
+fn void phase_fill_terrain(Block* block, Allocator scratch)
+{
+    const int PITCH = BLOCK_HEIGHTMAP_PIXELS;
+    const int WALL_HEIGHT = 3;
+    usz n_pixels = (usz)(PITCH * PITCH);
+    ushort[] mask = alloc::new_array(scratch, ushort, n_pixels);
+    defer if (mask.len != 0) alloc::free(scratch, mask.ptr);
+
+    for (int j = 0; j < BUILDING_GRID_Z; j++) {
+        for (int i = 0; i < BUILDING_GRID_X; i++) {
+            // Find the highest k where this tile has a building connection.
+            // Walk top-down and stop at the first hit.
+            int hit_k = -1;
+            for (int k = BUILDING_GRID_Y - 1; k >= 0; k--) {
+                BuildingNode* n = &block.building_data[node_index(i, j, k)];
+                bool is_building = false;
+                for (int s = 0; s < BUILDING_NODE_CONS; s++) {
+                    ConType t = n.con[s].con_type;
+                    if (t == ConType.WING || t == ConType.WINDOWFRAME ||
+                        t == ConType.DOORWAY || t == ConType.MAINHALL) {
+                        is_building = true;
+                        break;
+                    }
+                }
+                if (is_building) { hit_k = k; break; }
+            }
+            if (hit_k < 0) continue;
+
+            int adjusted_h = (int)block.map_data[j * BUILDING_GRID_X + i].adjusted_height;
+            int y_lo = adjusted_h + 1;
+            int y_hi = adjusted_h + WALL_HEIGHT;
+            if (y_lo < 0) y_lo = 0;
+            if (y_hi > 15) y_hi = 15;
+            if (y_lo > y_hi) continue;
+            ushort bits = 0;
+            for (int y = y_lo; y <= y_hi; y++) bits |= (ushort)(1u << (uint)y);
+
+            int px0 = i * BUILDING_TILE_PX;
+            int pz0 = j * BUILDING_TILE_PX;
+            for (int pz = pz0; pz < pz0 + BUILDING_TILE_PX; pz++) {
+                for (int px = px0; px < px0 + BUILDING_TILE_PX; px++) {
+                    mask[pz * PITCH + px] |= bits;
+                }
+            }
+        }
+    }
+
+    gpu::texture2d_upload(
+        block.building_interior_tex, mask.ptr, gpu::Format.R16UI,
+        0, 0, 0, PITCH, PITCH);
 }
 
 // Phase 3: clamp neighbour height deltas to 1 tile and floor to the new sea
