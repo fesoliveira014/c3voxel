@@ -130,6 +130,15 @@ fn void apply_rules(
                     + jitter * two_pi * (1.0f - rules.angle_uniformity_u) / (float)num_kids;
 
         core::Vec3 shoot_rot = vec3_rotate_axis(parent.base_shoot, parent.tangent, theta);
+        // Clamp branches to grow upward only. Without this, gen-1 shoots
+        // rotating around a non-vertical parent tangent can flip downward,
+        // and the resulting gen-2 tips (where leaf spheres sit) land below
+        // the tree origin. The leaf sphere then bakes half-buried in the
+        // terrain; from iso only the top of the canopy pokes through.
+        // Mirror shoot_rot across the horizontal plane when it points down
+        // — preserves the random theta distribution projected onto the
+        // upper hemisphere.
+        if (shoot_rot.y < 0.0f) shoot_rot = { shoot_rot.x, -shoot_rot.y, shoot_rot.z };
         core::Vec3 end_pt    = vec3_add(parent.end_point, vec3_scale(shoot_rot, cur_length));
         float div_angle      = plant_frand_range(seed, counter, rules.divergence_angle_v[0], rules.divergence_angle_v[1]);
         core::Vec3 new_tangent = vec3_normalize(vec3_lerp(parent.tangent, shoot_rot, div_angle * 0.5f));
@@ -319,6 +328,83 @@ fn bool tile_is_built(Block* block, float wx, float wz) @local
     return t != ConType.NONE;
 }
 
+// Emit trees whose ORIGIN lies in the page at (src_px, src_pz). If
+// `is_home` is true, push all branches unconditionally. If false, the
+// source is a neighbour — keep only branches whose vis-AABB overlaps
+// the home page's XZ extent, so a tree whose canopy crosses a page
+// boundary still renders on the far side.
+fn void plant_emit_trees_from(
+    PageGeometry*  out,
+    Page*          home_page,
+    Block*         block,
+    uint           world_seed,
+    PlantNodeList* scratch,
+    int            src_px_i,
+    int            src_pz_i,
+    bool           is_home) @local
+{
+    uint px = (uint)src_px_i;
+    uint pz = (uint)src_pz_i;
+    uint base_h = voxel::voronoi_hash(px, pz, world_seed, 0u);
+    int  count  = 3 + (int)(((base_h >> 24) & 0x7u) % 6u);
+
+    float src_x0 = (float)src_px_i * (float)PIXELS_PER_PAGE;
+    float src_z0 = (float)src_pz_i * (float)PIXELS_PER_PAGE;
+    float src_w  = (float)PIXELS_PER_PAGE;
+
+    float home_x0 = home_page.world_min.x;
+    float home_z0 = home_page.world_min.z;
+    float home_x1 = home_page.world_max.x;
+    float home_z1 = home_page.world_max.z;
+
+    for (int i = 0; i < count; i++) {
+        uint pos_h = voxel::voronoi_hash(px, pz, world_seed, (uint)(i + 1));
+        float fx = (float)(pos_h & 0xFFFFu) / 65535.0f;
+        float fz = (float)((pos_h >> 16) & 0xFFFFu) / 65535.0f;
+        float wx = src_x0 + fx * src_w;
+        float wz = src_z0 + fz * src_w;
+        float wy = heightmap_sample_at(wx, wz);
+        if (wy < WATER_LEVEL_Y) continue;
+
+        // tile_is_built needs the origin page's block. For neighbour pages
+        // that sit in a different block we don't have that block here, so
+        // the check runs against THIS page's block. Origins outside its
+        // map_data range safely return false — neighbour-block trees may
+        // pierce a building at the edge, acceptable until M8 gets a
+        // BlockPool-lookup.
+        if (is_home && tile_is_built(block, wx, wz)) continue;
+
+        uint type_h = voxel::voronoi_hash(px, pz, world_seed, (uint)(i + 100));
+        uint trunk_pick = type_h & 1u;
+        voxel::PlantType type = trunk_pick == 0u
+            ? voxel::PlantType.OAK_TRUNK
+            : voxel::PlantType.OAK2_TRUNK;
+
+        uint tree_seed = voxel::voronoi_hash(px, pz, world_seed, (uint)(i + 2000));
+
+        usz len_before = out.tree.len();
+        plant_grow_tree(out, scratch, type, { wx, wy, wz }, tree_seed);
+
+        if (is_home) continue;
+
+        // Filter appended branches by XZ AABB overlap with the home page.
+        // Swap-with-last + pop; branch order within SSBO doesn't matter
+        // (shader iterates unconditionally).
+        usz r = out.tree.len();
+        while (r > len_before) {
+            r--;
+            voxel::TreeEntry e = out.tree[r];
+            bool ov = e.vis_max.x >= home_x0 && e.vis_min.x <= home_x1
+                   && e.vis_max.z >= home_z0 && e.vis_min.z <= home_z1;
+            if (!ov) {
+                usz last = out.tree.len() - 1;
+                if (r != last) out.tree.set(r, out.tree[last]);
+                (void)out.tree.pop();
+            }
+        }
+    }
+}
+
 fn void plant_generate_page(
     PageGeometry*  out,
     Page*          page,
@@ -326,36 +412,18 @@ fn void plant_generate_page(
     uint           world_seed,
     PlantNodeList* scratch)
 {
-    uint px = (uint)(int)page.px;
-    uint pz = (uint)(int)page.pz;
-    uint base_h = voxel::voronoi_hash(px, pz, world_seed, 0u);
-    // Uniform 3..8 via (0..5) + 3. Earlier `& 0x5u` variant only yielded
-    // {0, 1, 4, 5}, collapsing to tree counts {3, 4, 7, 8}.
-    int count = 3 + (int)(((base_h >> 24) & 0x7u) % 6u);
-
-    for (int i = 0; i < count; i++) {
-        uint pos_h = voxel::voronoi_hash(px, pz, world_seed, (uint)(i + 1));
-        float fx = (float)(pos_h & 0xFFFFu) / 65535.0f;
-        float fz = (float)((pos_h >> 16) & 0xFFFFu) / 65535.0f;
-        float wx = page.world_min.x + fx * (page.world_max.x - page.world_min.x);
-        float wz = page.world_min.z + fz * (page.world_max.z - page.world_min.z);
-        float wy = heightmap_sample_at(wx, wz);
-        if (wy < WATER_LEVEL_Y) continue;
-
-        // Skip trees growing through buildings or down the middle of roads.
-        if (tile_is_built(block, wx, wz)) continue;
-
-        uint type_h = voxel::voronoi_hash(px, pz, world_seed, (uint)(i + 100));
-        // Only leafy trunks at the surface — BARE_OAK_TRUNK (sphere_gen=-1)
-        // produces trunks with no leaves, which read as "cutoff stumps".
-        // Roots variants are always underground and invisible under flat
-        // terrain, so skip them too. Cycle between the two leafy variants.
-        uint trunk_pick = type_h & 1u;
-        voxel::PlantType type = trunk_pick == 0u
-            ? voxel::PlantType.OAK_TRUNK
-            : voxel::PlantType.OAK2_TRUNK;
-
-        uint tree_seed = voxel::voronoi_hash(px, pz, world_seed, (uint)(i + 2000));
-        plant_grow_tree(out, scratch, type, { wx, wy, wz }, tree_seed);
+    // Home page + 8 neighbours. Each TreeEntry has its own per-branch
+    // vis-AABB; a tree whose canopy straddles a page boundary stamps
+    // its far-side branches into this page's SSBO so the shader can
+    // paint those voxels too. Without this, canopies get cleanly sliced
+    // at page edges.
+    int home_px = (int)page.px;
+    int home_pz = (int)page.pz;
+    for (int dz = -1; dz <= 1; dz++) {
+        for (int dx = -1; dx <= 1; dx++) {
+            bool is_home = (dx == 0 && dz == 0);
+            plant_emit_trees_from(out, page, block, world_seed, scratch,
+                                  home_px + dx, home_pz + dz, is_home);
+        }
     }
 }

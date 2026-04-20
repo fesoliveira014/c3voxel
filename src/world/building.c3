@@ -778,13 +778,15 @@ fn void building_emit_to_page(PageGeometry* out, Block* block, Page* page)
             MapNode map_here = block.map_data[j * BUILDING_GRID_X + i];
             int base_height = (int)map_here.adjusted_height;
 
-            // Roof slab: for any footprint tile (WING or MAINHALL), emit a
-            // 1-tile-tall SHINGLE slab covering the entire 8x8 pixel tile
-            // at the building's top Y level. Neighbouring footprint tiles
-            // emit adjacent slabs that tile together into a continuous
-            // roof surface so the building reads as closed from above.
-            ConType foot_type = map_here.connection_props[0];
-            if (foot_type == ConType.WING || foot_type == ConType.MAINHALL) {
+            // Roof slab: for REAL footprint tiles (all 4 cprops WING/MAINHALL),
+            // emit a 1-tile-tall SHINGLE slab covering the full 8x8 tile at
+            // the building's top Y level. Perimeter-tag tiles (outside the
+            // footprint, carrying only the +X or +Z slot so back walls
+            // render) must NOT emit a roof — otherwise roofs extend one
+            // tile past the footprint on the NW side, poking through the
+            // left/back wall from the iso camera's POV.
+            MapNode* map_here_ptr = &block.map_data[j * BUILDING_GRID_X + i];
+            if (is_real_footprint(map_here_ptr)) {
                 int roof_k = base_height + BUILDING_WALL_HEIGHT - 1;
                 float rx = block_origin_x + ((float)i + 0.5f) * tile_px_f;
                 float rz = block_origin_z + ((float)j + 0.5f) * tile_px_f;

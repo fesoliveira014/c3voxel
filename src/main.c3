@@ -106,8 +106,20 @@ fn int main(String[] args)
         f12_prev = f12_now;
 
         if (mouse.left_down) {
-            pan_target.x -= (float)mouse.dx * PAN_SENSITIVITY / zoom_scale;
-            pan_target.z -= (float)mouse.dy * PAN_SENSITIVITY / zoom_scale;
+            // Iso-aware grab-and-pull: convert (dx, dy) in GLFW window
+            // pixels (y-down) to a world-ground delta, then shift
+            // pan_target by its negative so the point under the cursor
+            // tracks the mouse. The XZ basis is:
+            //   sx  = zoom * (wx - wz)
+            //   sy  = zoom * (ISO_TILT * (wx + wz))   (y-up; dy flips)
+            // so (s, u) = (dx / zoom, -dy / (zoom * ISO_TILT)) inverts to
+            //   dwx = (u + s)/2,  dwz = (u - s)/2.
+            float s   = (float)mouse.dx / zoom_scale;
+            float u   = -(float)mouse.dy / (zoom_scale * game::ISO_TILT);
+            float dwx = (u + s) * 0.5f;
+            float dwz = (u - s) * 0.5f;
+            pan_target.x -= dwx * PAN_SENSITIVITY;
+            pan_target.z -= dwz * PAN_SENSITIVITY;
         }
 
         if (mouse.scroll_steps != 0) {
