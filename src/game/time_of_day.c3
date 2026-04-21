@@ -119,12 +119,15 @@ fn core::Vec4 sun_color_for(float t)
 //   day   (e >= 1): (0.45, 0.48, 0.52) @ 0.55
 fn core::Vec4 ambient_color_for(float t)
 {
-    const core::Vec3 AMB_NIGHT = { 0.18f, 0.20f, 0.24f };
+    // Night ambient is BRIGHTER than day — at night `sun_lit` is tiny
+    // (moon intensity 0.03) so ambient is the entire lighting budget. To
+    // avoid "pitch black + a few bright pixels" under AO modulation, the
+    // night ambient RGB is cranked and the intensity doubled. Day ambient
+    // stays low so direct sun dominates and provides the
+    // lit-vs-shadow contrast.
+    const core::Vec3 AMB_NIGHT = { 0.35f, 0.40f, 0.55f };  // cool moonlight fill
     const core::Vec3 AMB_DAY   = { 0.45f, 0.48f, 0.52f };
-    // Ambient is the visibility floor. Night needs enough fill that the
-    // scene doesn't vanish when sun_lit is near zero. Day ambient stays
-    // modest so sun_lit provides the direct-vs-shadow contrast.
-    const float      I_NIGHT   = 0.55f;
+    const float      I_NIGHT   = 1.20f;
     const float      I_DAY     = 0.40f;
 
     float elevation = (float)math::sin(wrap01(t) * 2.0f * (float)math::PI);
