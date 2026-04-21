@@ -95,12 +95,12 @@ void main()
     vec3  sun_lit  = sun_color.rgb     * sun_color.a     * n_dot_l * shadow;
     vec3  ambient  = ambient_color.rgb * ambient_color.a;
 
-    // AO applied only to ambient. `ao` is sometimes near zero around dense
-    // geometry (pow curve in ao.frag crushes occluded samples), so a 0.35
-    // floor keeps crevices visible at night — without it the scene went
-    // pitch-black with only a handful of fully-open pixels breaking
-    // through. Direct sunlight is never multiplied by AO (standard PBR
-    // convention: AO modulates indirect/ambient light only).
-    float ao_mod = 0.35 + 0.65 * ao;
-    out_color = vec4(albedo * (ambient * ao_mod + sun_lit), 1.0);
+    // AO: raw ratio from ao.frag, blended with a 0.25 floor so corners
+    // darken to ~25% of full brightness (clearly visible occlusion)
+    // without crushing the whole scene. Applied to BOTH ambient and
+    // direct sun — the strict PBR "AO only on indirect" treatment made
+    // the effect nearly invisible at noon (sun swamps ambient); this
+    // reads as the SSAO term the spec actually wants.
+    float ao_mod = 0.25 + 0.75 * ao;
+    out_color = vec4(albedo * (ambient + sun_lit) * ao_mod, 1.0);
 }
