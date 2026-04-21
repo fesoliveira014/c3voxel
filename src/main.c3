@@ -127,6 +127,8 @@ fn int main(String[] args)
     bool       lb_prev    = false;       // [ previous frame
     bool       rb_prev    = false;       // ] previous frame
     bool       p_prev     = false;       // P previous frame
+    bool       f5_prev    = false;       // F5 previous frame — debug-mode toggle
+    int        debug_mode = 0;           // 0 = normal lighting, 1 = col_top grayscale
 
     game::TimeOfDay tod;
     tod.init();
@@ -157,12 +159,19 @@ fn int main(String[] args)
         bool lb_now = win.key_down(glfw::KEY_LEFT_BRACKET);
         bool rb_now = win.key_down(glfw::KEY_RIGHT_BRACKET);
         bool p_now  = win.key_down(glfw::KEY_P);
+        bool f5_now = win.key_down(glfw::KEY_F5);
         if (lb_now && !lb_prev) tod.step(-1);
         if (rb_now && !rb_prev) tod.step(+1);
         if (p_now  && !p_prev)  tod.toggle_auto();
+        // F5: toggle col_top grayscale debug view (0 = normal lighting, 1 = col_top).
+        if (f5_now && !f5_prev) {
+            debug_mode = (debug_mode == 0) ? 1 : 0;
+            io::printfn("debug_mode = %d (0 = lit, 1 = col_top grayscale)", debug_mode);
+        }
         lb_prev = lb_now;
         rb_prev = rb_now;
         p_prev  = p_now;
+        f5_prev = f5_now;
 
         tod.update((core::Seconds)(float)clock.dt);
 
@@ -278,7 +287,7 @@ fn int main(String[] args)
             .resolution       = { win.fb_width, win.fb_height, 0, 0 },
             .pan_target       = { pan_target.x, pan_target.y, pan_target.z, zoom_scale },
             .time_of_day      = tod.t,
-            .shadow_step      = 1.0f,
+            .debug_mode       = debug_mode,
             .shadow_max_steps = 48,
             .ao_quality_high  = 0,
         };

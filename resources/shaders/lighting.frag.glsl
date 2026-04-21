@@ -25,7 +25,7 @@ layout(std140, binding = 32) uniform LightingU {
     ivec4 resolution;         // { fb_w, fb_h, 0, 0 }
     vec4  pan_target;         // .xyz = pan_target world pos; .w = zoom scale
     float time_of_day;
-    float shadow_step;        // reserved (fixed step count path)
+    int   debug_mode;         // 0 = normal, 1 = col_top grayscale
     int   shadow_max_steps;
     int   ao_quality_high;
 };
@@ -92,6 +92,18 @@ void main()
 {
     vec4 g = texture(gbuffer, v_uv);
     if (g.a == 0.0) discard;                        // sky pixels → present fills
+
+    // Debug mode 1: render col_top (R8, scaled by MAX_WORLD_Y) as
+    // grayscale. Lets us visually inspect whether col_top is correct
+    // for building walls vs tree canopies vs terrain. A solid mid-gray
+    // on every pixel of a building footprint means col_top ≈ roof_y
+    // (working). Dark patches mean col_top ≈ first-hit y (scan broken
+    // for those columns).
+    if (debug_mode == 1) {
+        float ct = texture(col_top_tex, v_uv).r;
+        out_color = vec4(ct, ct, ct, 1.0);
+        return;
+    }
 
     int  material_id = int(g.a * 255.0 + 0.5);
     material_id      = clamp(material_id, 0, MATERIAL_COUNT - 1);

@@ -16,8 +16,8 @@ struct LightingUniforms @packed @align(16) {
     core::IVec4 resolution;         // { fb_w, fb_h, 0, 0 }
     core::Vec4  pan_target;         // .xyz = pan_target, .w = zoom_scale
     float       time_of_day;        // [0, 1)
-    float       shadow_step;        // reserved (fixed step count path used)
-    int         shadow_max_steps;   // shadow march iteration count (T8 = 24)
+    int         debug_mode;         // 0 = normal, 1 = col_top grayscale
+    int         shadow_max_steps;   // shadow march iteration count
     int         ao_quality_high;    // 0 = low (24 taps), 1 = high (96 taps)
 }
 $assert(LightingUniforms.sizeof % 16 == 0);
