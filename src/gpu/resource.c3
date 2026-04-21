@@ -44,6 +44,7 @@ enum Format : char {
     RGBA8,
     RGBA16F,
     RGBA32F,
+    RG8,
     R8,
     R8UI,
     R16UI,
@@ -75,6 +76,7 @@ fn GLenum format_to_gl(Format f)
         case Format.RGBA8:            return (GLenum)gl::GL_RGBA8;
         case Format.RGBA16F:          return (GLenum)gl::GL_RGBA16F;
         case Format.RGBA32F:          return (GLenum)gl::GL_RGBA32F;
+        case Format.RG8:              return (GLenum)gl::GL_RG8;
         case Format.R8:               return (GLenum)gl::GL_R8;
         case Format.R8UI:             return (GLenum)gl::GL_R8UI;
         case Format.R16UI:            return (GLenum)gl::GL_R16UI;
@@ -101,6 +103,7 @@ fn GLenum format_channel(Format f)
         case Format.RGBA8:
         case Format.RGBA16F:
         case Format.RGBA32F:          return (GLenum)gl::GL_RGBA;
+        case Format.RG8:              return (GLenum)gl::GL_RG;
         case Format.R8:
         case Format.R16F:
         case Format.R32F:             return (GLenum)gl::GL_RED;
@@ -114,6 +117,7 @@ fn GLenum format_pixel_type(Format f)
 {
     switch (f) {
         case Format.RGBA8:
+        case Format.RG8:
         case Format.R8:
         case Format.R8UI:             return (GLenum)gl::GL_UNSIGNED_BYTE;
         case Format.R16UI:            return (GLenum)gl::GL_UNSIGNED_SHORT;

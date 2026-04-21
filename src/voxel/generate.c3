@@ -24,6 +24,7 @@ const gpu::ByteSize LINE_SSBO_BYTES    = MAX_ENTRIES_PER_PAGE * (gpu::ByteSize)L
 
 struct GenerateContext {
     gpu::Shader shader;
+    gpu::Shader normal_shader;
     gpu::Buffer ubo;
     gpu::Buffer geom_ssbo;
     gpu::Buffer tree_ssbo;
@@ -36,28 +37,34 @@ fn void? GenerateContext.init(&self, Allocator allocator)
     gpu::ShaderStageSpec[1] specs = {
         { gpu::ShaderStageKind.COMPUTE, "resources/shaders/generate.comp.glsl" },
     };
-    self.shader      = gpu::shader_load(allocator, specs[..])!;
-    self.ubo         = gpu::buffer_create(GenerateUniforms.sizeof, gpu::BufferUsage.DYNAMIC);
-    self.geom_ssbo   = gpu::buffer_create(GEOM_SSBO_BYTES, gpu::BufferUsage.DYNAMIC);
-    self.tree_ssbo   = gpu::buffer_create(TREE_SSBO_BYTES, gpu::BufferUsage.DYNAMIC);
-    self.line_ssbo   = gpu::buffer_create(LINE_SSBO_BYTES, gpu::BufferUsage.DYNAMIC);
-    self.voronoi_ubo = gpu::buffer_create(VoronoiParams.sizeof, gpu::BufferUsage.DYNAMIC);
+    gpu::ShaderStageSpec[1] normal_specs = {
+        { gpu::ShaderStageKind.COMPUTE, "resources/shaders/generate_normal.comp.glsl" },
+    };
+    self.shader        = gpu::shader_load(allocator, specs[..])!;
+    self.normal_shader = gpu::shader_load(allocator, normal_specs[..])!;
+    self.ubo           = gpu::buffer_create(GenerateUniforms.sizeof, gpu::BufferUsage.DYNAMIC);
+    self.geom_ssbo     = gpu::buffer_create(GEOM_SSBO_BYTES, gpu::BufferUsage.DYNAMIC);
+    self.tree_ssbo     = gpu::buffer_create(TREE_SSBO_BYTES, gpu::BufferUsage.DYNAMIC);
+    self.line_ssbo     = gpu::buffer_create(LINE_SSBO_BYTES, gpu::BufferUsage.DYNAMIC);
+    self.voronoi_ubo   = gpu::buffer_create(VoronoiParams.sizeof, gpu::BufferUsage.DYNAMIC);
 }
 
 fn void GenerateContext.destroy(&self)
 {
     gpu::shader_destroy(self.shader);
+    gpu::shader_destroy(self.normal_shader);
     gpu::buffer_destroy(self.ubo);
     gpu::buffer_destroy(self.geom_ssbo);
     gpu::buffer_destroy(self.tree_ssbo);
     gpu::buffer_destroy(self.line_ssbo);
     gpu::buffer_destroy(self.voronoi_ubo);
-    self.shader      = gpu::SHADER_INVALID;
-    self.ubo         = gpu::BUFFER_INVALID;
-    self.geom_ssbo   = gpu::BUFFER_INVALID;
-    self.tree_ssbo   = gpu::BUFFER_INVALID;
-    self.line_ssbo   = gpu::BUFFER_INVALID;
-    self.voronoi_ubo = gpu::BUFFER_INVALID;
+    self.shader        = gpu::SHADER_INVALID;
+    self.normal_shader = gpu::SHADER_INVALID;
+    self.ubo           = gpu::BUFFER_INVALID;
+    self.geom_ssbo     = gpu::BUFFER_INVALID;
+    self.tree_ssbo     = gpu::BUFFER_INVALID;
+    self.line_ssbo     = gpu::BUFFER_INVALID;
+    self.voronoi_ubo   = gpu::BUFFER_INVALID;
 }
 
 fn void GenerateContext.dispatch_page(&self, gpu::Commands* cmd, VolumeRing* ring, int slot, world::Page* page, gpu::Texture2D block_heightmap, gpu::Texture2D block_road, gpu::Texture2D block_interior, core::Vec4 block_origin, core::Vec4 block_extent, core::Seconds time)
@@ -96,6 +103,17 @@ fn void GenerateContext.dispatch_page(&self, gpu::Commands* cmd, VolumeRing* rin
     cmd.bind_ubo(6, self.voronoi_ubo, 0, VoronoiParams.sizeof);
     cmd.bind_texture_2d(7, block_road);
     cmd.bind_texture_2d(8, block_interior);
+    cmd.dispatch(world::VOLUME_PITCH / 4, world::VOLUME_PITCH / 4, world::VOLUME_PITCH / 4);
+    cmd.barrier(gpu::BarrierType.SHADER_IMAGE_ACCESS);
+
+    // M8 T2: derive per-voxel surface normals by central-differencing the
+    // opacity channel of the main volume, then writing octahedral-packed
+    // normals into the aux RG8 ring slot. Same dispatch dimensions as the
+    // main generate; barrier below makes the packed normals available to
+    // the raymarch stage's sampler fetches.
+    cmd.bind_shader(self.normal_shader);
+    cmd.bind_image(0, ring.slot(slot),        gpu::Access.READ_ONLY);
+    cmd.bind_image(1, ring.normal_slot(slot), gpu::Access.WRITE_ONLY);
     cmd.dispatch(world::VOLUME_PITCH / 4, world::VOLUME_PITCH / 4, world::VOLUME_PITCH / 4);
     cmd.barrier(gpu::BarrierType.IMAGE_TO_TEXTURE);
 }

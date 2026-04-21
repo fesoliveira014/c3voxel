@@ -135,6 +135,7 @@ fn int main(String[] args)
         if (clock.frame % RELOAD_CHECK_INTERVAL == 0) {
             gpu::shader_reload_if_changed(composite.shader);
             gpu::shader_reload_if_changed(gen.shader);
+            gpu::shader_reload_if_changed(gen.normal_shader);
             gpu::shader_reload_if_changed(rm.shader);
         }
 

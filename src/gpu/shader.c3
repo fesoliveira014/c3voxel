@@ -263,7 +263,9 @@ fn void? run_glslc(ShaderStage* s) @private
     }
 
     String flag_arg = string::tformat("-fshader-stage=%s", stage_flag(s.kind));
-    String[6] argv = { "glslc", "--target-env=opengl", flag_arg, s.glsl_path, "-o", s.spv_path };
+    // -I resources/shaders lets sources #include "common/xyz.glsl" from the
+    // shared include dir (M8 introduced common/octahedral.glsl).
+    String[8] argv = { "glslc", "--target-env=opengl", "-I", "resources/shaders", flag_arg, s.glsl_path, "-o", s.spv_path };
     int? code = process::run(argv[..], process::SpawnOptions.INHERIT_STDIO);
     if (catch err = code) {
         io::eprintfn("[shader] glslc spawn failed: %s", err);
