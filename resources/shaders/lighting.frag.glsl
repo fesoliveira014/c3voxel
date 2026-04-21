@@ -91,9 +91,15 @@ void main()
 
     float ao = texture(ao_tex, v_uv).r;
 
-    float n_dot_l = max(dot(normal, sun_dir.xyz), 0.0);
-    vec3  lit     = albedo * (ambient_color.rgb * ambient_color.a
-                            + sun_color.rgb * sun_color.a * n_dot_l * shadow) * ao;
+    float n_dot_l       = max(dot(normal, sun_dir.xyz), 0.0);
+    vec3  light_contrib = sun_color.rgb * sun_color.a * n_dot_l * shadow;
 
-    out_color = vec4(lit, 1.0);
+    // Composite (lighting.md §5 / spec §7): mix between an AO-darkened
+    // ambient-only base and the fully lit color, keyed on how bright the
+    // direct contribution is. Shadows keep AO-modulated base color instead
+    // of going black; lit regions saturate to the full sun contribution.
+    vec3  dark_color = albedo * (ambient_color.rgb * ambient_color.a) * ao;
+    vec3  lit_color  = albedo * (light_contrib + ambient_color.rgb * ambient_color.a);
+    float strength   = smoothstep(0.05, 0.6, dot(light_contrib, vec3(1.0 / 3.0)));
+    out_color = vec4(mix(dark_color, lit_color, strength), 1.0);
 }
