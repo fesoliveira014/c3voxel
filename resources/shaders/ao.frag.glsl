@@ -48,9 +48,13 @@ void main()
     float tot_rays = 0.0;
 
     // Loop runs j = 2, 3, 4 — three effective radii (4, 8, 16 world units).
+    // Uniform per-sample weight: VQ's `(jMax - 2^j)/jMax` formula goes
+    // negative for j ≥ 3, flipping signs on both totals so any mild
+    // occlusion collapsed the ratio to ~0. We lose the inverse-radius
+    // preference (near samples counted more) but gain a well-behaved
+    // hit-rate in [0, 1] that lighting.frag can blend cleanly.
     for (int j = 2; j < J_MAX; j++) {
-        float r_tier    = exp2(float(j));
-        float hit_power = (float(J_MAX) - r_tier) / float(J_MAX);
+        float r_tier = exp2(float(j));
 
         for (int i = 0; i < I_MAX; i++) {
             float fi    = float(i) * PI / float(I_MAX);
@@ -71,8 +75,8 @@ void main()
             float tc_z = clamp(base.b + (dz + n.z) / 255.0, 0.0, 1.0);
 
             vec4 samp = texture(gbuffer, v_uv + tc_xy);
-            if (samp.b < tc_z) tot_hits += hit_power;
-            tot_rays += hit_power;
+            if (samp.b < tc_z) tot_hits += 1.0;
+            tot_rays += 1.0;
         }
     }
 
