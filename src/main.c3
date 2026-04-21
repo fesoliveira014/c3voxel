@@ -99,6 +99,12 @@ fn int main(String[] args)
     core::Vec3 pan_target = { 0.0f, 0.0f, 0.0f };
     float      zoom_scale = 1.0f;
     bool       f12_prev   = false;
+    bool       lb_prev    = false;       // [ previous frame
+    bool       rb_prev    = false;       // ] previous frame
+    bool       p_prev     = false;       // P previous frame
+
+    game::TimeOfDay tod;
+    tod.init();
 
     world::PlantNodeList plant_scratch;
     plant_scratch.init(mem, 64);
@@ -118,6 +124,22 @@ fn int main(String[] args)
         bool f12_now = win.key_down(glfw::KEY_F12);
         if (f12_now && !f12_prev) timer.dump();
         f12_prev = f12_now;
+
+        // Time-of-day controls (edge-detected so auto-repeat doesn't spam):
+        //   [  step sun back     (disables auto-advance)
+        //   ]  step sun forward  (disables auto-advance)
+        //   P  toggle auto-advance
+        bool lb_now = win.key_down(glfw::KEY_LEFT_BRACKET);
+        bool rb_now = win.key_down(glfw::KEY_RIGHT_BRACKET);
+        bool p_now  = win.key_down(glfw::KEY_P);
+        if (lb_now && !lb_prev) tod.step(-1);
+        if (rb_now && !rb_prev) tod.step(+1);
+        if (p_now  && !p_prev)  tod.toggle_auto();
+        lb_prev = lb_now;
+        rb_prev = rb_now;
+        p_prev  = p_now;
+
+        tod.update((core::Seconds)(float)clock.dt);
 
         if (mouse.left_down) {
             // Iso-aware grab-and-pull: convert (dx, dy) in GLFW window
@@ -212,18 +234,16 @@ fn int main(String[] args)
         if (catch err = lighting.resize(win.fb_width, win.fb_height)) {
             io::eprintfn("Failed to resize lit FBO: %s", err);
         }
+        core::Vec3 sun_dir = game::sun_direction_for(tod.t);
         render::LightingUniforms lighting_uniforms = {
-            // T7 fills sun_dir/sun_color/ambient_color/time_of_day from
-            // TimeOfDay helpers. These placeholders render a fixed
-            // noon-like look so the T6 build is not visually dead.
-            .sun_dir          = { 0.0f, 1.0f, 0.0f, 0.0f },
-            .sun_color        = { 1.00f, 0.98f, 0.92f, 1.0f },
-            .ambient_color    = { 0.45f, 0.48f, 0.52f, 0.55f },
+            .sun_dir          = { sun_dir.x, sun_dir.y, sun_dir.z, 0.0f },
+            .sun_color        = game::sun_color_for(tod.t),
+            .ambient_color    = game::ambient_color_for(tod.t),
             .resolution       = { win.fb_width, win.fb_height, 0, 0 },
-            .time_of_day      = 0.25f,
-            .shadow_step      = 1.0f,
-            .shadow_max_steps = 24,
-            .ao_quality_high  = 0,
+            .time_of_day      = tod.t,
+            .shadow_step      = 1.0f,     // reserved for T8
+            .shadow_max_steps = 24,       // reserved for T8
+            .ao_quality_high  = 0,        // reserved for T9
         };
         lighting.dispatch(&cmd, deferred.gbuffer_texture(), &lighting_uniforms);
         cmd.time_pop();
