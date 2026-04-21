@@ -80,14 +80,17 @@ float march_shadow(vec3 w_start, vec2 s_start, vec3 w_end, vec2 s_end)
     }
     if (total_rays < 1.0) return 1.0;
     float shadow = 1.0 - clamp(total_hits / total_rays, 0.0, 1.0);
-    // `smoothstep(0.2, 0.9, shadow)` sharpens the lit-vs-shadow boundary.
-    // Before this, a 50% partial-occlusion pixel mapped to 50% lit — the
-    // whole scene read as a smooth gradient with no clear "this is in
-    // shadow" boundary. The S-curve pins heavily-occluded pixels (≤20%
-    // lit rays) to full dark and lightly-occluded (≥90% lit rays) to
-    // full light, with a short midrange penumbra. Matches the original
-    // M8 drop's dramatic look without the `pow()` curve's harshness.
-    return smoothstep(0.2, 0.9, shadow);
+    // `pow(shadow, 4.0)` — dramatic exponential falloff so even a small
+    // hit rate registers as visible darkening. Narrow occluders (wall
+    // thickness, tree trunks) only flip a handful of the 48 samples, so
+    // the raw shadow value lands in the 0.85-0.98 band; a smoothstep
+    // with ≥0.9 top clips those to full-lit and ground shadows vanish.
+    // A pow curve darkens proportionally instead of cliffing:
+    //   shadow=0.95 → 0.81   (≈20% dark)
+    //   shadow=0.90 → 0.66   (≈34% dark)
+    //   shadow=0.80 → 0.41   (≈59% dark)
+    //   shadow=0.50 → 0.063  (essentially black)
+    return pow(shadow, 4.0);
 }
 
 void main()
