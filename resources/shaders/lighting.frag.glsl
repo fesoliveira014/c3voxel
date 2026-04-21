@@ -37,17 +37,7 @@ layout(std140, binding = 32) uniform LightingU {
 
 const int   MATERIAL_COUNT = 17;
 const float MAX_WORLD_Y    = 128.0;
-// Range sized so building shadows cast their full geometric length
-// across the ground at low sun angles. Buildings are ~28 world units
-// tall; at 45° sun the shadow should reach ~28 units from the footprint
-// edge. Our march rises 1:1 with its horizontal reach at that angle, so
-// by the time the march got within reach of the building from a far
-// pixel, w_cur.y already exceeded the roof height — no hit. 96 gives
-// the march enough horizontal extent to still be below the roof when
-// it crosses the building footprint. Paired with shadow_max_steps=64
-// in main.c3 the per-step resolution stays at 1.5 world units,
-// preserving narrow-occluder detection.
-const float SHADOW_RANGE   = 96.0;
+const float SHADOW_RANGE   = 64.0;
 
 // Heightfield shadow march from the shaded pixel's world pos toward the
 // sun. Both world and screen positions are interpolated in lockstep so the
@@ -55,7 +45,7 @@ const float SHADOW_RANGE   = 96.0;
 float march_shadow(vec3 w_start, vec2 s_start, vec3 w_end, vec2 s_end)
 {
     float total_hits = 0.0;
-    float total_rays = 0.0;
+    float hit_count  = 0.0;
     int   n          = shadow_max_steps;
     for (int i = 1; i <= n; i++) {
         float f = float(i) / float(n);
@@ -68,42 +58,16 @@ float march_shadow(vec3 w_start, vec2 s_start, vec3 w_end, vec2 s_end)
         vec4  samp   = texture(gbuffer, s_cur);
         float cur_h  = samp.b * MAX_WORLD_Y;
         int   mat_id = int(samp.a * 255.0 + 0.5);
-        // Sky (0), water (12), and glass (14) pass light through.
+        // +2.0 world-unit bias avoids self-acne at march origin.
+        float was_hit = float(cur_h > w_cur.y + 2.0);
+        // Water (12), glass (14), and air (0) let light through.
         float opaque  = float(mat_id != 0 && mat_id != 12 && mat_id != 14);
-        // Material-based occluder override: G-buffer height is the iso
-        // ray's first-hit y, which for visible wall faces and trunk sides
-        // sits midway up the column. Heightfield alone under-occludes.
-        // Counting tall-geometry materials as always-occluder is a coarse
-        // proxy — terrain materials (DIRT/STONE/GRASS) fall through to
-        // the normal heightfield path so flat ground doesn't erroneously
-        // shadow itself. A proper column-max pass (attempted at 075b381
-        // and reverted) would replace this with a clean implementation
-        // once there's a free G-buffer channel for the tallest-y value.
-        bool is_tall_mat = (mat_id == 6)   // MORTAR
-                        || (mat_id == 7)   // WOOD (tree trunks, doors)
-                        || (mat_id == 8)   // BRICK
-                        || (mat_id == 9)   // SHINGLE (roofs)
-                        || (mat_id == 10)  // PLASTER (walls)
-                        || (mat_id == 15); // EARTH
-        float hf_hit  = float(cur_h > w_cur.y + 1.0);
-        float mat_hit = float(is_tall_mat);
-        float was_hit = max(hf_hit, mat_hit);
         total_hits += was_hit * opaque;
-        total_rays += opaque;
+        hit_count  += opaque;
     }
-    if (total_rays < 1.0) return 1.0;
-    float shadow = 1.0 - clamp(total_hits / total_rays, 0.0, 1.0);
-    // `pow(shadow, 8.0)` — amplified falloff so narrow occluders read.
-    // Tree trunks (~2.5 voxels) only flip 2-3 samples of the 64-sample
-    // march, landing shadow at 0.95-0.97 raw. Building walls (thin
-    // slabs) similarly under-register. pow(·,4) left these at 80%+ lit;
-    // pow(·,8) maps them into the 50-70% lit band where the darkening
-    // is visible:
-    //   shadow=0.98 → 0.85  (~15% dark)
-    //   shadow=0.95 → 0.66  (~34% dark)
-    //   shadow=0.90 → 0.43  (~57% dark)
-    //   shadow=0.80 → 0.17  (~83% dark)
-    return pow(shadow, 8.0);
+    if (hit_count < 1.0) return 1.0;
+    float shadow = 1.0 - clamp(total_hits / hit_count, 0.0, 1.0);
+    return clamp(pow(shadow, 2.0), 0.0, 1.0);
 }
 
 void main()
@@ -131,12 +95,11 @@ void main()
     vec3  sun_lit  = sun_color.rgb     * sun_color.a     * n_dot_l * shadow;
     vec3  ambient  = ambient_color.rgb * ambient_color.a;
 
-    // AO: raw ratio from ao.frag, blended with a 0.25 floor so corners
-    // darken to ~25% of full brightness (clearly visible occlusion)
-    // without crushing the whole scene. Applied to BOTH ambient and
-    // direct sun — the strict PBR "AO only on indirect" treatment made
-    // the effect nearly invisible at noon (sun swamps ambient); this
-    // reads as the SSAO term the spec actually wants.
-    float ao_mod = 0.25 + 0.75 * ao;
-    out_color = vec4(albedo * (ambient + sun_lit) * ao_mod, 1.0);
+    // Simple additive lighting with AO applied only to the ambient/indirect
+    // term (standard PBR convention — AO models indirect occlusion, not
+    // direct sun). Multiplying AO into the whole expression dropped the
+    // scene to near-black because VQ's SSAO formula already power-crushes
+    // the value; applying it just to the ambient branch keeps direct
+    // sunlight crisp while still biting crevices and under-awnings.
+    out_color = vec4(albedo * (ambient * ao + sun_lit), 1.0);
 }

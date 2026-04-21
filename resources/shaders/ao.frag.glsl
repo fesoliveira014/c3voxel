@@ -48,13 +48,9 @@ void main()
     float tot_rays = 0.0;
 
     // Loop runs j = 2, 3, 4 — three effective radii (4, 8, 16 world units).
-    // Uniform per-sample weight: VQ's `(jMax - 2^j)/jMax` formula goes
-    // negative for j ≥ 3, flipping signs on both totals so any mild
-    // occlusion collapsed the ratio to ~0. We lose the inverse-radius
-    // preference (near samples counted more) but gain a well-behaved
-    // hit-rate in [0, 1] that lighting.frag can blend cleanly.
     for (int j = 2; j < J_MAX; j++) {
-        float r_tier = exp2(float(j));
+        float r_tier    = exp2(float(j));
+        float hit_power = (float(J_MAX) - r_tier) / float(J_MAX);
 
         for (int i = 0; i < I_MAX; i++) {
             float fi    = float(i) * PI / float(I_MAX);
@@ -75,16 +71,19 @@ void main()
             float tc_z = clamp(base.b + (dz + n.z) / 255.0, 0.0, 1.0);
 
             vec4 samp = texture(gbuffer, v_uv + tc_xy);
-            if (samp.b < tc_z) tot_hits += 1.0;
-            tot_rays += 1.0;
+            if (samp.b < tc_z) tot_hits += hit_power;
+            tot_rays += hit_power;
         }
     }
 
     float ao = clamp(tot_hits / max(tot_rays, 1e-4), 0.0, 1.0);
-    // Raw ratio only — lighting.frag applies its own floor-and-scale
-    // (`0.25 + 0.75 * ao`). VQ's `pow(ao, 6.0)` was paired with a
-    // mix(dark, lit) composite that used AO on the dark branch alone;
-    // our simpler composite multiplies the whole lit expression by AO,
-    // so an additional exponent just crushes the full image.
+    // VQ's `pow(ao, 6.0)` was tuned for the dark/lit smoothstep branch in
+    // lighting.md §5 — that composite blended ambient*ao into a pure-light
+    // branch, so a crushed AO only darkened shadowed pixels. We use AO as
+    // a single ambient-term modulator in lighting.frag, so a softer curve
+    // (^2) keeps lit regions bright while still biting corners.
+    ao = pow(ao, 2.0);
+
+    // Standalone R8 target: keep the AO term in .r, zero the rest.
     out_color = vec4(ao, 0.0, 0.0, 0.0);
 }

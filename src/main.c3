@@ -18,24 +18,6 @@ const float PAN_SENSITIVITY       = 1.5f;
 
 fn int main(String[] args)
 {
-    // --- CLI args -------------------------------------------------------
-    // `--flat-terrain` or `-f`: skip fbm2 heightmap, render on a
-    // perfectly flat plane at FLAT_TERRAIN_H01 * MAX_HEIGHT. Handy for
-    // debugging shadows/lighting where rolling terrain obscures the
-    // ground contribution. Must be applied before any block generation.
-    bool flat_terrain = false;
-    for (usz i = 1; i < args.len; i++) {
-        if (args[i] == "--flat-terrain" || args[i] == "-f") {
-            flat_terrain = true;
-        } else if (args[i] == "--help" || args[i] == "-h") {
-            io::printfn("Usage: c3voxel [--flat-terrain|-f] [--help|-h]");
-            io::printfn("  --flat-terrain, -f  Skip fbm2; render on a flat plane.");
-            return 0;
-        }
-    }
-    world::terrain_set_flat(flat_terrain);
-    if (flat_terrain) io::printfn("[world] flat terrain mode enabled");
-
     platform::Window win;
     if (catch err = win.init(platform::window_config_default())) {
         io::eprintfn("Failed to open window: %s", err);
@@ -279,7 +261,7 @@ fn int main(String[] args)
             .pan_target       = { pan_target.x, pan_target.y, pan_target.z, zoom_scale },
             .time_of_day      = tod.t,
             .shadow_step      = 1.0f,
-            .shadow_max_steps = 64,
+            .shadow_max_steps = 24,
             .ao_quality_high  = 0,
         };
         lighting.dispatch(&cmd, deferred.gbuffer_texture(), ao.result_texture(), &lighting_uniforms);
