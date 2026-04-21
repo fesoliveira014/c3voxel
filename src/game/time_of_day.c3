@@ -55,15 +55,24 @@ fn void TimeOfDay.toggle_auto(&self) @inline
 
 // --- Pure helpers, unit-testable -----------------------------------------
 
-// Sun arcs in the world XY plane (east→up→west→down):
-//   t=0    → (+1, 0, 0)   east horizon
-//   t=0.25 → ( 0,+1, 0)   overhead
-//   t=0.5  → (-1, 0, 0)   west horizon
-//   t=0.75 → ( 0,-1, 0)   below horizon
+// Sun arcs on a plane tilted 30° around world-X. The pure XY-plane
+// orbit used previously had sun_dir.z == 0 for every t, so walls whose
+// normals pointed in ±Z had n·L == 0 perpetually — the iso-visible
+// north/south building faces read as pure ambient+AO and looked
+// flat-shaded regardless of time of day. With the tilt those walls
+// catch direct light across most of the cycle.
+//   t=0    → (+1,      0,     0   )   east horizon
+//   t=0.25 → ( 0, +0.866, +0.5 )     overhead, leaning +Z
+//   t=0.5  → (-1,      0,     0   )   west horizon
+//   t=0.75 → ( 0, -0.866, -0.5 )     below horizon, leaning -Z
 fn core::Vec3 sun_direction_for(float t) @inline
 {
     float angle = t * 2.0f * (float)math::PI;
-    return { (float)math::cos(angle), (float)math::sin(angle), 0.0f };
+    float cx = (float)math::cos(angle);
+    float sy = (float)math::sin(angle);
+    const float TILT_COS = 0.866f;  // cos(30°)
+    const float TILT_SIN = 0.5f;    // sin(30°)
+    return { cx, sy * TILT_COS, sy * TILT_SIN };
 }
 
 // Sun/moon color with an intensity in `.a`. Piecewise linear between four

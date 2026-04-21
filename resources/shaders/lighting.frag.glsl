@@ -70,24 +70,30 @@ float march_shadow(vec3 w_start, vec2 s_start, vec3 w_end, vec2 s_end)
         // toward zero over long marches, giving near-full-lit for every
         // pixel including those behind walls.
         float opaque  = float(mat_id != 0 && mat_id != 12 && mat_id != 14);
-        // +1.0 world-unit bias avoids self-acne at march origin. VQ used
-        // +2.0 at a `pixelsPerMeter` > 1 scale; our voxel == 1 world unit
-        // so +1.0 is already comfortably above the packed-height step
-        // (0.5 world units — RGBA8 `.b * 128`).
-        float was_hit = float(cur_h > w_cur.y + 1.0);
+        // Tight bias — the packed-height quantization step is 0.5 world
+        // units (RGBA8 `.b * 128`) and the loop starts at i=1 so we never
+        // sample the origin pixel itself. +0.25 lets grazing wall-face
+        // entries register where +1.0 previously ate them: for a diagonal
+        // iso view ray entering the west face of a wall, cur_h sits only
+        // ~0.577·(distance to face) above the sun ray's y — barely above
+        // w_cur.y. A full world-unit bias discards most of those steps
+        // and caps the hit rate at 15-25% even for clearly-shadowed
+        // pixels, which the downstream smoothstep then rounds to lit.
+        float was_hit = float(cur_h > w_cur.y + 0.25);
         total_hits += was_hit * opaque;
         total_rays += opaque;
     }
     if (total_rays < 1.0) return 1.0;
     float shadow = 1.0 - clamp(total_hits / total_rays, 0.0, 1.0);
-    // `smoothstep(0.2, 0.9, shadow)` sharpens the lit-vs-shadow boundary.
-    // Before this, a 50% partial-occlusion pixel mapped to 50% lit — the
-    // whole scene read as a smooth gradient with no clear "this is in
-    // shadow" boundary. The S-curve pins heavily-occluded pixels (≤20%
-    // lit rays) to full dark and lightly-occluded (≥90% lit rays) to
-    // full light, with a short midrange penumbra. Matches the original
-    // M8 drop's dramatic look without the `pow()` curve's harshness.
-    return smoothstep(0.2, 0.9, shadow);
+    // Gentle sharpening. The earlier `smoothstep(0.2, 0.9, shadow)` had
+    // a lower threshold above the algorithm's actual hit-rate range —
+    // clearly-shadowed pixels top out around 25% occlusion (thin wall
+    // slabs, short march windows inside occluders), giving shadow≈0.75
+    // which smoothstep rounded back to fully lit. `pow(shadow, 3.0)`
+    // keeps the same "dark when occluded, bright otherwise" S-curve
+    // without demanding unreachable hit rates: shadow=0.83 → ~0.58
+    // (40% dim), 0.5 → ~0.125 (near-full dark), 0.2 → 0.008 (black).
+    return clamp(pow(shadow, 3.0), 0.0, 1.0);
 }
 
 void main()

@@ -13,7 +13,8 @@ fn bool approx_eq(float a, float b, float tol = TOL) @local
     return math::abs(a - b) < tol;
 }
 
-// Test 1 — sun direction at the four cardinal times of day.
+// Test 1 — sun direction at the four cardinal times of day. Orbit is
+// tilted 30° about world-X so t=0.25/0.75 carry ±0.5 in .z.
 fn void sun_direction_cardinals() @test
 {
     core::Vec3 d0   = game::sun_direction_for(0.00f);
@@ -28,12 +29,12 @@ fn void sun_direction_cardinals() @test
     assert(approx_eq(d0.y, 0.0f));
     assert(approx_eq(d0.z, 0.0f));
 
-    if (!approx_eq(d25.x, 0.0f) || !approx_eq(d25.y, 1.0f) || !approx_eq(d25.z, 0.0f)) {
-        io::printfn("sun_direction_for(0.25) = (%.4f, %.4f, %.4f); expected ~(0, 1, 0)", d25.x, d25.y, d25.z);
+    if (!approx_eq(d25.x, 0.0f) || !approx_eq(d25.y, 0.866f) || !approx_eq(d25.z, 0.5f)) {
+        io::printfn("sun_direction_for(0.25) = (%.4f, %.4f, %.4f); expected ~(0, 0.866, 0.5)", d25.x, d25.y, d25.z);
     }
     assert(approx_eq(d25.x, 0.0f));
-    assert(approx_eq(d25.y, 1.0f));
-    assert(approx_eq(d25.z, 0.0f));
+    assert(approx_eq(d25.y, 0.866f));
+    assert(approx_eq(d25.z, 0.5f));
 
     if (!approx_eq(d50.x, -1.0f) || !approx_eq(d50.y, 0.0f) || !approx_eq(d50.z, 0.0f)) {
         io::printfn("sun_direction_for(0.50) = (%.4f, %.4f, %.4f); expected ~(-1, 0, 0)", d50.x, d50.y, d50.z);
@@ -42,12 +43,12 @@ fn void sun_direction_cardinals() @test
     assert(approx_eq(d50.y, 0.0f));
     assert(approx_eq(d50.z, 0.0f));
 
-    if (!approx_eq(d75.x, 0.0f) || !approx_eq(d75.y, -1.0f) || !approx_eq(d75.z, 0.0f)) {
-        io::printfn("sun_direction_for(0.75) = (%.4f, %.4f, %.4f); expected ~(0, -1, 0)", d75.x, d75.y, d75.z);
+    if (!approx_eq(d75.x, 0.0f) || !approx_eq(d75.y, -0.866f) || !approx_eq(d75.z, -0.5f)) {
+        io::printfn("sun_direction_for(0.75) = (%.4f, %.4f, %.4f); expected ~(0, -0.866, -0.5)", d75.x, d75.y, d75.z);
     }
     assert(approx_eq(d75.x, 0.0f));
-    assert(approx_eq(d75.y, -1.0f));
-    assert(approx_eq(d75.z, 0.0f));
+    assert(approx_eq(d75.y, -0.866f));
+    assert(approx_eq(d75.z, -0.5f));
 }
 
 // Test 2 — intensity ordering: noon brighter than midnight.
