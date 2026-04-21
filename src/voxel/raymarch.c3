@@ -100,6 +100,8 @@ fn void RayMarchContext.dispatch_holder(
     cmd.bind_texture(9,  page_normals[1]);
     cmd.bind_texture(10, page_normals[2]);
     cmd.bind_texture(11, page_normals[3]);
+    // Binding 12: column-top MRT (shadow threshold; see raymarch.comp.glsl).
+    cmd.bind_image_2d(12, holder_fbo.colors[3], gpu::Access.WRITE_ONLY);
 
     int gx = ((int)holder_fbo.width  + 7) / 8;
     int gy = ((int)holder_fbo.height + 7) / 8;

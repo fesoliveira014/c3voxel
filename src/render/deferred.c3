@@ -68,6 +68,7 @@ fn void? DeferredContext.resize(&self, gpu::Pixel fb_width, gpu::Pixel fb_height
 }
 
 fn gpu::Texture2D DeferredContext.gbuffer_texture(&self) @inline => self.fbo.colors[0];
+fn gpu::Texture2D DeferredContext.col_top_texture(&self) @inline => self.fbo.colors[1];
 
 fn void DeferredContext.dispatch(&self, gpu::Commands* cmd, world::GpuPool* pool, world::HolderPool* holders, core::Vec4[] screen_mins, core::Vec4[] screen_maxs, uint alive_mask, gpu::Pixel fb_width, gpu::Pixel fb_height)
 {
@@ -93,25 +94,29 @@ fn void DeferredContext.dispatch(&self, gpu::Commands* cmd, world::GpuPool* pool
     cmd.bind_shader(self.shader);
 
     // Binding layout (must mirror deferred.frag.glsl):
-    //   0..15  holder material (R8UI / usampler)
-    //   16..31 holder normal   (RG8)
+    //   0..15  holder material  (R8UI / usampler)
+    //   16..31 holder normal    (RG8)
     //   32     UBO
-    //   33..48 holder height   (R16F)
+    //   33..48 holder height    (R16F)
+    //   49..64 holder col_top   (R16F) — shadow-march threshold
     for (int i = 0; i < MAX_DEFERRED_HOLDERS; i++) {
         gpu::Texture2D mat_tex    = gpu::TEXTURE2D_INVALID;
         gpu::Texture2D normal_tex = gpu::TEXTURE2D_INVALID;
         gpu::Texture2D height_tex = gpu::TEXTURE2D_INVALID;
+        gpu::Texture2D coltop_tex = gpu::TEXTURE2D_INVALID;
         if ((alive_mask & ((uint)1 << i)) != 0) {
             world::Holder* h = holders.get(pool.slots[i].owner);
             if (h != null) {
                 mat_tex    = h.fbo_layer0.colors[0];
                 normal_tex = h.fbo_layer0.colors[1];
                 height_tex = h.fbo_layer0.colors[2];
+                coltop_tex = h.fbo_layer0.colors[3];
             }
         }
         cmd.bind_texture_2d((uint)(i +  0), mat_tex);
         cmd.bind_texture_2d((uint)(i + 16), normal_tex);
         cmd.bind_texture_2d((uint)(i + 33), height_tex);
+        cmd.bind_texture_2d((uint)(i + 49), coltop_tex);
     }
     cmd.bind_ubo(32, self.ubo, 0, DeferredUniforms.sizeof);
     cmd.draw_fullscreen_quad();
@@ -120,7 +125,10 @@ fn void DeferredContext.dispatch(&self, gpu::Commands* cmd, world::GpuPool* pool
 
 fn gpu::Framebuffer? framebuffer_create_gbuffer(gpu::Pixel w, gpu::Pixel h)
 {
-    gpu::Format[1] colors = { gpu::Format.RGBA8 };
+    // Two attachments: the packed RGBA8 G-buffer + an R8 column-top
+    // channel. `col_top / MAX_WORLD_Y` in `.r` — 256 steps over 128
+    // world units = same 0.5-unit precision as the height channel.
+    gpu::Format[2] colors = { gpu::Format.RGBA8, gpu::Format.R8 };
     return gpu::framebuffer_create({
         .width     = w,
         .height    = h,

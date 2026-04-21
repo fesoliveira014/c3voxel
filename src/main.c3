@@ -282,7 +282,7 @@ fn int main(String[] args)
             .shadow_max_steps = 48,
             .ao_quality_high  = 0,
         };
-        lighting.dispatch(&cmd, deferred.gbuffer_texture(), ao.result_texture(), &lighting_uniforms);
+        lighting.dispatch(&cmd, deferred.gbuffer_texture(), ao.result_texture(), deferred.col_top_texture(), &lighting_uniforms);
         cmd.time_pop();
 
         // Present pass: gamma-correct the lit color onto fbo 0.

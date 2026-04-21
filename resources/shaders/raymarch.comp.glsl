@@ -9,6 +9,11 @@ layout(binding = 0) uniform sampler3D  page_volumes[4];
 layout(binding = 4, r8ui) uniform restrict writeonly uimage2D material_out;
 layout(binding = 5, rg8)  uniform restrict writeonly image2D  normal_out;
 layout(binding = 6, r16f) uniform restrict writeonly image2D  height_out;
+// Column-top height at the first-hit xz — the highest opaque voxel in
+// that column. Drives the shadow-march threshold in lighting.frag so
+// wall faces (whose first-hit y is midway up the column) still block.
+// Bindings 8..11 hold page_normals, so this lives at 12.
+layout(binding = 12, r16f) uniform restrict writeonly image2D col_top_out;
 
 layout(std140, binding = 7) uniform U {
     vec4  holder_center;                // (cx, 0, cz, 0)
@@ -133,6 +138,9 @@ void main()
 
     int steps_remaining = MAX_STEPS;
     bool done = false;
+    int  hit_page = 0;
+    vec3 hit_wp   = vec3(0.0);
+    float col_top = -1.0e30;
 
     for (int slot = 0; slot < 4 && !done; slot++) {
         int p = order[slot];
@@ -153,6 +161,8 @@ void main()
                 hit_mat  = uint(int(v.b * 255.0 + 0.5));
                 hit_norm = sample_normal(p, uvw);
                 hit_y    = wp.y;
+                hit_page = p;
+                hit_wp   = wp;
                 done     = true;
                 break;
             }
@@ -161,13 +171,38 @@ void main()
         }
     }
 
+    // Column-top scan: walk straight up from the first hit at its xz,
+    // recording the highest opaque voxel. Stops at the first *air* voxel
+    // above — the column is "solid from hit_y to col_top". Kept in a
+    // SEPARATE MRT (not overwriting hit_y) so the lighting shader can
+    // still reconstruct the pixel's world position from the first-hit
+    // surface. Early-outs on ground (gap at hit_y+1) and roof/canopy
+    // (gap at hit_y+1) — only wall-face pixels actually scan much.
+    if (hit) {
+        vec3  pmin_h  = page_world_min[hit_page].xyz;
+        vec3  pmax_h  = page_world_max[hit_page].xyz;
+        vec3  psize_h = pmax_h - pmin_h;
+        col_top = hit_y;
+        for (int k = 1; k < 128; k++) {
+            vec3 up_wp = vec3(hit_wp.x, hit_wp.y + float(k) * voxel_len, hit_wp.z);
+            if (up_wp.y >= pmax_h.y) break;
+            vec3 up_uvw = (up_wp - pmin_h) / psize_h;
+            if (any(lessThan(up_uvw, vec3(0.0))) || any(greaterThan(up_uvw, vec3(1.0)))) break;
+            vec4 up_v = sample_page(hit_page, up_uvw);
+            if (up_v.a < 0.5) break;   // reached air — column ends here
+            col_top = up_wp.y;
+        }
+    }
+
     if (!hit) {
         imageStore(material_out, pix, uvec4(0));
         imageStore(normal_out,   pix, vec4(0.5, 0.5, 0.0, 0.0));
         imageStore(height_out,   pix, vec4(-1.0e30, 0.0, 0.0, 0.0));
+        imageStore(col_top_out,  pix, vec4(-1.0e30, 0.0, 0.0, 0.0));
     } else {
         imageStore(material_out, pix, uvec4(hit_mat, 0u, 0u, 0u));
         imageStore(normal_out,   pix, vec4(hit_norm, 0.0, 0.0));
-        imageStore(height_out,   pix, vec4(hit_y, 0.0, 0.0, 0.0));
+        imageStore(height_out,   pix, vec4(hit_y,   0.0, 0.0, 0.0));
+        imageStore(col_top_out,  pix, vec4(col_top, 0.0, 0.0, 0.0));
     }
 }

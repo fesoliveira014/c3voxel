@@ -16,6 +16,7 @@ layout(location = 0) out vec4 out_color;
 layout(binding = 0) uniform sampler2D gbuffer;
 layout(binding = 1) uniform sampler2D palette;     // 17×1 RGBA8
 layout(binding = 2) uniform sampler2D ao_tex;      // R8 from ao.frag
+layout(binding = 3) uniform sampler2D col_top_tex; // R8 col_top / MAX_WORLD_Y
 
 layout(std140, binding = 32) uniform LightingU {
     vec4  sun_dir;            // .w unused
@@ -62,24 +63,15 @@ float march_shadow(vec3 w_start, vec2 s_start, vec3 w_end, vec2 s_end)
         if (any(lessThan(s_cur, vec2(0.0))) || any(greaterThan(s_cur, vec2(1.0)))) break;
 
         vec4  samp   = texture(gbuffer, s_cur);
-        float cur_h  = samp.b * MAX_WORLD_Y;
         int   mat_id = int(samp.a * 255.0 + 0.5);
-        // Sky (material 0), water (12), and glass (14) pass light through —
-        // they don't count as occluders AND they don't consume a ray.
-        // Counting them as un-occluded rays at VQ did would dilute the ratio
-        // toward zero over long marches, giving near-full-lit for every
-        // pixel including those behind walls.
-        float opaque  = float(mat_id != 0 && mat_id != 12 && mat_id != 14);
-        // Tight bias — the packed-height quantization step is 0.5 world
-        // units (RGBA8 `.b * 128`) and the loop starts at i=1 so we never
-        // sample the origin pixel itself. +0.25 lets grazing wall-face
-        // entries register where +1.0 previously ate them: for a diagonal
-        // iso view ray entering the west face of a wall, cur_h sits only
-        // ~0.577·(distance to face) above the sun ray's y — barely above
-        // w_cur.y. A full world-unit bias discards most of those steps
-        // and caps the hit rate at 15-25% even for clearly-shadowed
-        // pixels, which the downstream smoothstep then rounds to lit.
-        float was_hit = float(cur_h > w_cur.y + 0.25);
+        float opaque = float(mat_id != 0 && mat_id != 12 && mat_id != 14);
+        // Column-top height at this screen pixel — highest opaque voxel
+        // in the world column the view ray hits. Using first-hit height
+        // (samp.b) here under-occludes wall faces because the face
+        // entry-y rises at the same rate as the sun ray, keeping the
+        // comparison perpetually a touch above w_cur.y.
+        float cur_ct  = texture(col_top_tex, s_cur).r * MAX_WORLD_Y;
+        float was_hit = float(cur_ct > w_cur.y + 0.25);
         total_hits += was_hit * opaque;
         total_rays += opaque;
     }

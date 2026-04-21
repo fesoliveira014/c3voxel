@@ -74,12 +74,17 @@ fn HolderId? HolderPool.get_or_create(&self, HolderCoord hx, HolderCoord hz, Blo
         return (HolderId)core::handle_pack((uint)idx, (uint)self.storage[idx].generation);
     }
 
-    // M8 holder MRTs: material id (R8UI), octahedral normal (RG8), height
-    // (R16F). The composite pass picks a winner per pixel by max-height,
-    // mirrors the fields straight into the screen G-buffer.
-    gpu::Format[3] color_fmts = {
+    // M8 holder MRTs: material id (R8UI), octahedral normal (RG8),
+    // first-hit height (R16F), column top height (R16F). Composite picks
+    // a winner per pixel by max first-hit height and forwards both
+    // heights to the screen G-buffer. Column top is the topmost opaque
+    // voxel at the hit's xz — used as the shadow-march threshold so
+    // wall-face pixels (whose first-hit y sits midway up the column)
+    // still block light correctly.
+    gpu::Format[4] color_fmts = {
         gpu::Format.R8UI,
         gpu::Format.RG8,
+        gpu::Format.R16F,
         gpu::Format.R16F,
     };
     gpu::Framebuffer fbo = gpu::framebuffer_create({
