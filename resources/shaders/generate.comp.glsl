@@ -229,22 +229,30 @@ void main()
         }
     }
 
-    // 3. Geometry (buildings): nearest-match across GeomEntry.
-    float best_dis  = 1e30;
-    int   best_geom = -1;
+    // 3. Geometry (buildings): UNION across GeomEntry, matching section 2's
+    // tree loop. Evaluating only the nearest-by-xz entry (the prior scheme)
+    // left Swiss-cheese gaps at overlapping entry boundaries: the k-level
+    // seams of stacked wall superellipsoids (p=4, half_y=4) false-negate
+    // at off-centre columns where d.x⁴ + d.y⁴ > 1, and so do the matching
+    // neighbour wall / roof slabs that SHOULD backfill those voxels. With
+    // nearest-only, the single "winner" entry says air, and the adjacent
+    // overlapping entry is never consulted — ground shadows from walls
+    // disappeared because col_top's upward scan hit those gaps and halted
+    // well below the actual column top. Union fixes this: any entry whose
+    // superellipsoid accepts the voxel makes it opaque. First-wins order
+    // preserves the implicit material precedence from building_emit_to_page
+    // (roof slab pushed before walls → SHINGLE beats PLASTER at shared y).
+    int  geom_mat    = MAT_NULL;
+    bool geom_opaque = false;
     for (int i = 0; i < entry_counts.x; i++) {
         GeomEntry e = geom[i];
         if (!aabb_contains(world, e.vis_min.xyz, e.vis_max.xyz)) continue;
-        // VQ uses XZ-plane distance (not 3D); see pre-M8 comment in file history.
-        float d = distance(world.xz, e.center_point.xz);
-        if (d < best_dis) { best_dis = d; best_geom = i; }
-    }
-    int  geom_mat    = MAT_NULL;
-    bool geom_opaque = false;
-    if (best_geom >= 0) {
-        ivec2 g = eval_geom(world, geom[best_geom]);
-        geom_mat    = g.x;
-        geom_opaque = g.y != 0;
+        ivec2 g = eval_geom(world, e);
+        if (g.y != 0) {
+            geom_mat    = g.x;
+            geom_opaque = true;
+            break;
+        }
     }
 
     // 4. Composite: geometry wins over trees (buildings occlude); trees over
