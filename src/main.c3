@@ -63,21 +63,19 @@ fn int main(String[] args)
     }
     defer deferred.destroy();
 
-    // Fullscreen blit: copies the G-buffer's packed RGBA8 to the default
-    // framebuffer so the window isn't blank. Temporary — T5+ replaces this
-    // with the palette LUT + lighting pass, which takes the G-buffer as
-    // input and writes lit color to the default framebuffer instead.
-    gpu::ShaderStageSpec[2] blit_specs = {
-        { gpu::ShaderStageKind.VERTEX,   "resources/shaders/fullscreen.vert.glsl" },
-        { gpu::ShaderStageKind.FRAGMENT, "resources/shaders/fullscreen.frag.glsl" },
-    };
-    gpu::Shader? blit_result = gpu::shader_load(mem, blit_specs[..]);
-    if (catch err = blit_result) {
-        io::eprintfn("Failed to load blit shader: %s", err);
+    render::LightingContext lighting;
+    if (catch err = lighting.init(mem, win.fb_width, win.fb_height)) {
+        io::eprintfn("Failed to load lighting shader: %s", err);
         return 1;
     }
-    gpu::Shader blit_shader = blit_result;
-    defer gpu::shader_destroy(blit_shader);
+    defer lighting.destroy();
+
+    render::PresentContext present;
+    if (catch err = present.init(mem)) {
+        io::eprintfn("Failed to load present shader: %s", err);
+        return 1;
+    }
+    defer present.destroy();
 
     voxel::VolumeRing ring;
     ring.init();
@@ -153,7 +151,8 @@ fn int main(String[] args)
             gpu::shader_reload_if_changed(gen.shader);
             gpu::shader_reload_if_changed(gen.normal_shader);
             gpu::shader_reload_if_changed(rm.shader);
-            gpu::shader_reload_if_changed(blit_shader);
+            gpu::shader_reload_if_changed(lighting.shader);
+            gpu::shader_reload_if_changed(present.shader);
         }
 
         if (clock.frame > 0 && clock.frame % 60 == 0) {
@@ -207,16 +206,31 @@ fn int main(String[] args)
                           win.fb_width, win.fb_height);
         cmd.time_pop();
 
-        // Present: blit the G-buffer to the default framebuffer. T5+
-        // replaces this with the palette-and-lighting pipeline; until then
-        // the window shows a packed-looking grayscale image — expected.
+        // Lighting pass: palette-lookup albedo + single directional light,
+        // writes the lit color into lighting.result_fbo at window resolution.
+        cmd.time_push("lighting");
+        if (catch err = lighting.resize(win.fb_width, win.fb_height)) {
+            io::eprintfn("Failed to resize lit FBO: %s", err);
+        }
+        render::LightingUniforms lighting_uniforms = {
+            // T7 fills sun_dir/sun_color/ambient_color/time_of_day from
+            // TimeOfDay helpers. These placeholders render a fixed
+            // noon-like look so the T6 build is not visually dead.
+            .sun_dir          = { 0.0f, 1.0f, 0.0f, 0.0f },
+            .sun_color        = { 1.00f, 0.98f, 0.92f, 1.0f },
+            .ambient_color    = { 0.45f, 0.48f, 0.52f, 0.55f },
+            .resolution       = { win.fb_width, win.fb_height, 0, 0 },
+            .time_of_day      = 0.25f,
+            .shadow_step      = 1.0f,
+            .shadow_max_steps = 24,
+            .ao_quality_high  = 0,
+        };
+        lighting.dispatch(&cmd, deferred.gbuffer_texture(), &lighting_uniforms);
+        cmd.time_pop();
+
+        // Present pass: gamma-correct the lit color onto fbo 0.
         cmd.time_push("present");
-        cmd.bind_default_framebuffer();
-        cmd.set_viewport(0, 0, win.fb_width, win.fb_height);
-        cmd.clear(0.02f, 0.02f, 0.04f, 1.0f);
-        cmd.bind_shader(blit_shader);
-        cmd.bind_texture_2d(0, deferred.gbuffer_texture());
-        cmd.draw_fullscreen_quad();
+        present.dispatch(&cmd, lighting.result_texture(), win.fb_width, win.fb_height);
         cmd.time_pop();
 
         cmd.end_frame();

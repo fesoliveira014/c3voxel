@@ -1,5 +1,7 @@
 #version 460
 
+// M8 T6: fullscreen triangle for the gamma-present pass.
+
 out gl_PerVertex { vec4 gl_Position; };
 
 layout(location = 0) out vec2 v_uv;
