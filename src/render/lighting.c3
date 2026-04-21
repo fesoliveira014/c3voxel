@@ -5,18 +5,20 @@ import c3voxel::gpu;
 import c3voxel::voxel;
 
 // std140 layout — see docs/ubo-convention.md. Field order and types must
-// match `resources/shaders/lighting.frag.glsl` exactly. The trailing
-// shadow_* / ao_* fields are reserved for T8/T9 so the UBO layout settles
-// now and downstream shader additions don't require rebinding.
+// match `resources/shaders/lighting.frag.glsl` exactly. `pan_target` packs
+// the world-space camera focus (.xyz) and the current zoom (.w) used by
+// `common/iso.glsl` to map between screen UV and world XYZ during the
+// shadow march (T8).
 struct LightingUniforms @packed @align(16) {
     core::Vec4  sun_dir;            // normalized, world space; .w unused
     core::Vec4  sun_color;          // RGB linear; .a = intensity
     core::Vec4  ambient_color;      // RGB linear; .a = intensity
     core::IVec4 resolution;         // { fb_w, fb_h, 0, 0 }
+    core::Vec4  pan_target;         // .xyz = pan_target, .w = zoom_scale
     float       time_of_day;        // [0, 1)
-    float       shadow_step;        // unused in T6 (reserved for T8)
-    int         shadow_max_steps;   // unused in T6 (reserved for T8)
-    int         ao_quality_high;    // unused in T6 (reserved for T9)
+    float       shadow_step;        // reserved (fixed step count path used)
+    int         shadow_max_steps;   // shadow march iteration count (T8 = 24)
+    int         ao_quality_high;    // 0 = low (24 taps), 1 = high (96 taps)
 }
 $assert(LightingUniforms.sizeof % 16 == 0);
 

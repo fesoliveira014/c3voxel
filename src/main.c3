@@ -240,9 +240,10 @@ fn int main(String[] args)
             .sun_color        = game::sun_color_for(tod.t),
             .ambient_color    = game::ambient_color_for(tod.t),
             .resolution       = { win.fb_width, win.fb_height, 0, 0 },
+            .pan_target       = { pan_target.x, pan_target.y, pan_target.z, zoom_scale },
             .time_of_day      = tod.t,
-            .shadow_step      = 1.0f,     // reserved for T8
-            .shadow_max_steps = 24,       // reserved for T8
+            .shadow_step      = 1.0f,
+            .shadow_max_steps = 24,
             .ao_quality_high  = 0,        // reserved for T9
         };
         lighting.dispatch(&cmd, deferred.gbuffer_texture(), &lighting_uniforms);

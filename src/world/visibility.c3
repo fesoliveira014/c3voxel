@@ -25,6 +25,27 @@ fn core::Vec3 screen_to_world_xz(core::Vec3 pan_target, float zoom, float screen
     return { pan_target.x + wx, 0.0f, pan_target.z + wz };
 }
 
+// Full inverse with a user-supplied world height. Mirrors the GLSL
+// `iso_inverse(uv, height)` in `resources/shaders/common/iso.glsl`: takes a
+// UV on the framebuffer and the world-y at that pixel and recovers the
+// world XYZ. Used for the shadow-march roundtrip unit test (M8 T8).
+fn core::Vec3 screen_to_world_xyz(core::Vec3 pan_target, float zoom, float uv_x, float uv_y, float height, int fb_w, int fb_h) @inline
+{
+    float half_w = (float)fb_w * 0.5f;
+    float half_h = (float)fb_h * 0.5f;
+    float px_x = uv_x * (float)fb_w - half_w;
+    float px_y = uv_y * (float)fb_h - half_h;
+    float sx = px_x / zoom;
+    float sy = px_y / zoom;
+    // sy = T * (dx + dz) + height  →  dx + dz = (sy - height) / T.
+    // sx = dx - dz.
+    float sum  = (sy - height) / ISO_TILT;
+    float diff = sx;
+    float dx = 0.5f * (diff + sum);
+    float dz = 0.5f * (sum - diff);
+    return { pan_target.x + dx, height, pan_target.z + dz };
+}
+
 fn HolderRect visible_holder_rect(core::Vec3 pan_target, float zoom, int fb_w, int fb_h, int margin)
 {
     float half_w = (float)fb_w * 0.5f;
