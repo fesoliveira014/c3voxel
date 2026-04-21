@@ -136,7 +136,15 @@ fn Texture3D texture3d_create(Texture3DDesc desc)
     if (idx == MAX_TEXTURES) return TEXTURE3D_INVALID;
 
     int levels = desc.levels < 1 ? 1 : desc.levels;
-    int filter = (desc.fmt == Format.R8UI || desc.fmt == Format.R16UI) ? (int)gl::GL_NEAREST : (int)gl::GL_LINEAR;
+
+    // All 3D textures in this engine store discrete voxel data: material id
+    // packed into `.b`, octahedral normals, distance fields. Linear filtering
+    // interpolates between neighbouring voxels' packed material ids, producing
+    // fractional ids that round to UNRELATED materials at voxel boundaries
+    // (e.g. DIRT/2 → air/0 → reads as GOLD/1; PLASTER/10 → air/0 → reads as
+    // DEBUG/11, which is what made M8's first run paint buildings magenta and
+    // terrain yellow). NEAREST everywhere keeps the ids discrete.
+    int filter = (int)gl::GL_NEAREST;
 
     uint id;
     gl::createTextures((GLenum)gl::GL_TEXTURE_3D, 1, &id);

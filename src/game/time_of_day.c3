@@ -82,9 +82,13 @@ fn core::Vec4 sun_color_for(float t)
     const core::Vec3 MOON_BLUE  = { 0.025f, 0.030f, 0.075f }; // (0.10,0.12,0.30)*0.25
     const core::Vec3 DAWN_GOLD  = { 1.00f,  0.72f,  0.40f  };
     const core::Vec3 NOON_WHITE = { 1.00f,  0.98f,  0.92f  };
-    const float      I_NIGHT   = 0.15f;
-    const float      I_HORIZON = 0.40f;
-    const float      I_NOON    = 1.00f;
+    // Intensities tuned so `sun_contrib + ambient` stays ≤ 1.0 at noon
+    // (ambient peaks ~0.25 during day, so sun maxes at 0.70 to leave
+    // headroom pre-gamma). Night keeps a tiny moon floor so sun_lit isn't
+    // literally zero — the bulk of night visibility comes from ambient.
+    const float      I_NIGHT   = 0.03f;
+    const float      I_HORIZON = 0.35f;
+    const float      I_NOON    = 0.70f;
 
     float tw = wrap01(t);
     core::Vec3 rgb;
@@ -117,8 +121,11 @@ fn core::Vec4 ambient_color_for(float t)
 {
     const core::Vec3 AMB_NIGHT = { 0.18f, 0.20f, 0.24f };
     const core::Vec3 AMB_DAY   = { 0.45f, 0.48f, 0.52f };
-    const float      I_NIGHT   = 0.35f;
-    const float      I_DAY     = 0.55f;
+    // Ambient is the visibility floor. Night needs enough fill that the
+    // scene doesn't vanish when sun_lit is near zero. Day ambient stays
+    // modest so sun_lit provides the direct-vs-shadow contrast.
+    const float      I_NIGHT   = 0.55f;
+    const float      I_DAY     = 0.40f;
 
     float elevation = (float)math::sin(wrap01(t) * 2.0f * (float)math::PI);
     float f = elevation * 0.5f + 0.5f;
