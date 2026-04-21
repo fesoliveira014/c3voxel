@@ -37,13 +37,17 @@ layout(std140, binding = 32) uniform LightingU {
 
 const int   MATERIAL_COUNT = 17;
 const float MAX_WORLD_Y    = 128.0;
-// 48 world units is a building-height-and-a-half of reach. Paired with
-// shadow_max_steps=48 (see LightingUniforms wiring in main.c3) it gives
-// one step ≈ one voxel along the sun ray, which is the scale needed to
-// catch narrow occluders like wall-thickness slabs (WALL_RAD_M=2.0) and
-// tree trunks. 64 @ 24 was ~2.7 world units per step — fine for broad
-// terrain hills but skipped over anything slimmer than three voxels.
-const float SHADOW_RANGE   = 48.0;
+// Range sized so building shadows cast their full geometric length
+// across the ground at low sun angles. Buildings are ~28 world units
+// tall; at 45° sun the shadow should reach ~28 units from the footprint
+// edge. Our march rises 1:1 with its horizontal reach at that angle, so
+// by the time the march got within reach of the building from a far
+// pixel, w_cur.y already exceeded the roof height — no hit. 96 gives
+// the march enough horizontal extent to still be below the roof when
+// it crosses the building footprint. Paired with shadow_max_steps=64
+// in main.c3 the per-step resolution stays at 1.5 world units,
+// preserving narrow-occluder detection.
+const float SHADOW_RANGE   = 96.0;
 
 // Heightfield shadow march from the shaded pixel's world pos toward the
 // sun. Both world and screen positions are interpolated in lockstep so the
@@ -80,17 +84,17 @@ float march_shadow(vec3 w_start, vec2 s_start, vec3 w_end, vec2 s_end)
     }
     if (total_rays < 1.0) return 1.0;
     float shadow = 1.0 - clamp(total_hits / total_rays, 0.0, 1.0);
-    // `pow(shadow, 4.0)` — dramatic exponential falloff so even a small
-    // hit rate registers as visible darkening. Narrow occluders (wall
-    // thickness, tree trunks) only flip a handful of the 48 samples, so
-    // the raw shadow value lands in the 0.85-0.98 band; a smoothstep
-    // with ≥0.9 top clips those to full-lit and ground shadows vanish.
-    // A pow curve darkens proportionally instead of cliffing:
-    //   shadow=0.95 → 0.81   (≈20% dark)
-    //   shadow=0.90 → 0.66   (≈34% dark)
-    //   shadow=0.80 → 0.41   (≈59% dark)
-    //   shadow=0.50 → 0.063  (essentially black)
-    return pow(shadow, 4.0);
+    // `pow(shadow, 8.0)` — amplified falloff so narrow occluders read.
+    // Tree trunks (~2.5 voxels) only flip 2-3 samples of the 64-sample
+    // march, landing shadow at 0.95-0.97 raw. Building walls (thin
+    // slabs) similarly under-register. pow(·,4) left these at 80%+ lit;
+    // pow(·,8) maps them into the 50-70% lit band where the darkening
+    // is visible:
+    //   shadow=0.98 → 0.85  (~15% dark)
+    //   shadow=0.95 → 0.66  (~34% dark)
+    //   shadow=0.90 → 0.43  (~57% dark)
+    //   shadow=0.80 → 0.17  (~83% dark)
+    return pow(shadow, 8.0);
 }
 
 void main()

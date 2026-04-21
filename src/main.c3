@@ -279,7 +279,7 @@ fn int main(String[] args)
             .pan_target       = { pan_target.x, pan_target.y, pan_target.z, zoom_scale },
             .time_of_day      = tod.t,
             .shadow_step      = 1.0f,
-            .shadow_max_steps = 48,
+            .shadow_max_steps = 64,
             .ao_quality_high  = 0,
         };
         lighting.dispatch(&cmd, deferred.gbuffer_texture(), ao.result_texture(), &lighting_uniforms);
