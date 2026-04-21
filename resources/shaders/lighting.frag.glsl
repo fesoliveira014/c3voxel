@@ -68,17 +68,26 @@ float march_shadow(vec3 w_start, vec2 s_start, vec3 w_end, vec2 s_end)
         vec4  samp   = texture(gbuffer, s_cur);
         float cur_h  = samp.b * MAX_WORLD_Y;
         int   mat_id = int(samp.a * 255.0 + 0.5);
-        // Sky (material 0), water (12), and glass (14) pass light through —
-        // they don't count as occluders AND they don't consume a ray.
-        // Counting them as un-occluded rays at VQ did would dilute the ratio
-        // toward zero over long marches, giving near-full-lit for every
-        // pixel including those behind walls.
+        // Sky (0), water (12), and glass (14) pass light through.
         float opaque  = float(mat_id != 0 && mat_id != 12 && mat_id != 14);
-        // +1.0 world-unit bias avoids self-acne at march origin. VQ used
-        // +2.0 at a `pixelsPerMeter` > 1 scale; our voxel == 1 world unit
-        // so +1.0 is already comfortably above the packed-height step
-        // (0.5 world units — RGBA8 `.b * 128`).
-        float was_hit = float(cur_h > w_cur.y + 1.0);
+        // Tall-geometry materials — walls, roofs, trunks, brick, mortar,
+        // earth. The heightfield test `cur_h > w_cur.y + 1` fails for
+        // these: the G-buffer stores the iso ray's first-hit y, which for
+        // a visible wall face is a surface *midway up* the wall (not the
+        // column max), so march_y quickly exceeds it even when the full
+        // column extends higher. Counting any sample whose material is
+        // in this set as an occluder is a coarse column-max proxy that
+        // produces visible wall and trunk shadows. Terrain materials
+        // (DIRT/STONE/GRASS) fall through to the heightfield path.
+        bool is_tall_mat = (mat_id == 6)   // MORTAR
+                        || (mat_id == 7)   // WOOD (tree trunks, doors)
+                        || (mat_id == 8)   // BRICK
+                        || (mat_id == 9)   // SHINGLE (roofs)
+                        || (mat_id == 10)  // PLASTER (walls)
+                        || (mat_id == 15); // EARTH
+        float hf_hit  = float(cur_h > w_cur.y + 1.0);
+        float mat_hit = float(is_tall_mat);
+        float was_hit = max(hf_hit, mat_hit);
         total_hits += was_hit * opaque;
         total_rays += opaque;
     }
