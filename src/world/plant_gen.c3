@@ -315,21 +315,35 @@ fn void plant_grow_tree(
     bool is_root = type == voxel::PlantType.OAK_ROOTS
                 || type == voxel::PlantType.OAK2_ROOTS
                 || type == voxel::PlantType.BARE_OAK_ROOTS;
-    core::Vec3 initial_tangent = is_root ? (core::Vec3){ 0.0f, -1.0f, 0.0f } : (core::Vec3){ 0.0f, 1.0f, 0.0f };
 
     // Trunk (seed) is stretched by this factor so the first branching
     // level sits well above the ground; gen-0..gen-2 still use
     // rules.branch_length[cur_gen] for their own segment lengths, so the
-    // canopy size is unaffected. Visually: visible trunk between terrain
-    // and canopy instead of leaf spheres sitting on the dirt.
+    // canopy size is unaffected.
     const float TRUNK_BOOST = 2.5f;
     float cur_length_0 = rules.branch_length[0];
     float trunk_len    = cur_length_0 * TRUNK_BOOST;
+
+    // Lean the trunk a small random amount away from vertical so no two
+    // trees look like identical pillars. For roots (grow downward) keep
+    // the stem perfectly axial. A straight TILTED line is still straight
+    // — p1 = chord midpoint below — so the shader's tangent approximation
+    // stays exact.
+    uint counter = 0u;
+    core::Vec3 initial_tangent;
+    if (is_root) {
+        initial_tangent = { 0.0f, -1.0f, 0.0f };
+    } else {
+        float tilt_x = plant_frand_range(tree_seed, &counter, -0.22f, 0.22f);
+        float tilt_z = plant_frand_range(tree_seed, &counter, -0.22f, 0.22f);
+        initial_tangent = vec3_normalize((core::Vec3){ tilt_x, 1.0f, tilt_z });
+    }
+
     PlantNode seed_node = {
         .beg_point     = origin,
         .end_point     = vec3_add(origin, vec3_scale(initial_tangent, trunk_len)),
         .tangent       = initial_tangent,
-        .base_shoot    = { 1.0f, 0.0f, 0.0f },
+        .base_shoot    = any_orthogonal(initial_tangent),
         .beg_thickness = rules.beg_thickness,
         .end_thickness = rules.beg_thickness,
         .sphere_rad    = 0.0f,
@@ -340,7 +354,6 @@ fn void plant_grow_tree(
     scratch.push(seed_node);
 
     float max_length = compute_max_length(rules);
-    uint counter = 0u;
     apply_rules(scratch, rules, 0, 0, 0.0f, max_length, tree_seed, &counter);
 
     flatten_tree(scratch, out, rules.branch_material, rules.leaf_material);
