@@ -308,6 +308,10 @@ fn void drain_dirty(
             gpu::TEXTURE3D_INVALID, gpu::TEXTURE3D_INVALID,
             gpu::TEXTURE3D_INVALID, gpu::TEXTURE3D_INVALID,
         };
+        gpu::Texture3D[4] page_norms = {
+            gpu::TEXTURE3D_INVALID, gpu::TEXTURE3D_INVALID,
+            gpu::TEXTURE3D_INVALID, gpu::TEXTURE3D_INVALID,
+        };
         world::Page*[4] page_ptrs = { null, null, null, null };
         core::IVec4 valid_mask = { 0, 0, 0, 0 };
 
@@ -320,13 +324,14 @@ fn void drain_dirty(
                 int slot = ring.next();
                 gen.dispatch_page(cmd, ring, slot, page, block.heightmap, block.road_texture, block.building_interior_tex, block_origin, block_extent, (core::Seconds)0.0f);
                 page_vols[ph]  = ring.slot(slot);
+                page_norms[ph] = ring.normal_slot(slot);
                 page_ptrs[ph]  = page;
                 valid_mask.x |= (1 << ph);
             }
         }
 
         if (valid_mask.x != 0) {
-            rm.dispatch_holder(cmd, page_vols, holder, page_ptrs, &holder.fbo_layer0, valid_mask);
+            rm.dispatch_holder(cmd, page_vols, page_norms, holder, page_ptrs, &holder.fbo_layer0, valid_mask);
         }
         done++;
     }

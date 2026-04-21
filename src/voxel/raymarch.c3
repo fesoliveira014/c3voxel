@@ -48,6 +48,7 @@ fn void RayMarchContext.dispatch_holder(
     &self,
     gpu::Commands*    cmd,
     gpu::Texture3D[4] page_volumes,
+    gpu::Texture3D[4] page_normals,
     world::Holder*    h,
     world::Page*[4]   pages,
     gpu::Framebuffer* holder_fbo,
@@ -83,13 +84,22 @@ fn void RayMarchContext.dispatch_holder(
     gpu::buffer_upload(self.ubo, &u, 0, RayMarchUniforms.sizeof);
 
     cmd.bind_shader(self.shader);
+    // Bindings 0..3: page volume (material + opacity) samplers.
     cmd.bind_texture(0, page_volumes[0]);
     cmd.bind_texture(1, page_volumes[1]);
     cmd.bind_texture(2, page_volumes[2]);
     cmd.bind_texture(3, page_volumes[3]);
+    // Bindings 4..6: MRT output images (material_id / normal / height).
     cmd.bind_image_2d(4, holder_fbo.colors[0], gpu::Access.WRITE_ONLY);
     cmd.bind_image_2d(5, holder_fbo.colors[1], gpu::Access.WRITE_ONLY);
+    cmd.bind_image_2d(6, holder_fbo.colors[2], gpu::Access.WRITE_ONLY);
+    // Binding 7: RayMarchUniforms UBO.
     cmd.bind_ubo(7, self.ubo, 0, RayMarchUniforms.sizeof);
+    // Bindings 8..11: aux RG8 normal volumes (octahedral-packed).
+    cmd.bind_texture(8,  page_normals[0]);
+    cmd.bind_texture(9,  page_normals[1]);
+    cmd.bind_texture(10, page_normals[2]);
+    cmd.bind_texture(11, page_normals[3]);
 
     int gx = ((int)holder_fbo.width  + 7) / 8;
     int gy = ((int)holder_fbo.height + 7) / 8;

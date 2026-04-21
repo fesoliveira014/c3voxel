@@ -74,7 +74,14 @@ fn HolderId? HolderPool.get_or_create(&self, HolderCoord hx, HolderCoord hz, Blo
         return (HolderId)core::handle_pack((uint)idx, (uint)self.storage[idx].generation);
     }
 
-    gpu::Format[2] color_fmts = { gpu::Format.RGBA8, gpu::Format.R16F };
+    // M8 holder MRTs: material id (R8UI), octahedral normal (RG8), height
+    // (R16F). The composite pass picks a winner per pixel by max-height,
+    // mirrors the fields straight into the screen G-buffer.
+    gpu::Format[3] color_fmts = {
+        gpu::Format.R8UI,
+        gpu::Format.RG8,
+        gpu::Format.R16F,
+    };
     gpu::Framebuffer fbo = gpu::framebuffer_create({
         .width    = HOLDER_FBO_SIZE,
         .height   = HOLDER_FBO_SIZE,
