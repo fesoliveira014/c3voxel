@@ -15,6 +15,7 @@ layout(location = 0) out vec4 out_color;
 
 layout(binding = 0) uniform sampler2D gbuffer;
 layout(binding = 1) uniform sampler2D palette;     // 17×1 RGBA8
+layout(binding = 2) uniform sampler2D ao_tex;      // R8 from ao.frag
 
 layout(std140, binding = 32) uniform LightingU {
     vec4  sun_dir;            // .w unused
@@ -88,8 +89,7 @@ void main()
     vec2  s_end   = iso_forward(w_end);
     float shadow  = march_shadow(w_start, v_uv, w_end, s_end);
 
-    // T9 replaces this with a real AO texture sample.
-    float ao = 1.0;
+    float ao = texture(ao_tex, v_uv).r;
 
     float n_dot_l = max(dot(normal, sun_dir.xyz), 0.0);
     vec3  lit     = albedo * (ambient_color.rgb * ambient_color.a

@@ -75,9 +75,9 @@ fn void? LightingContext.resize(&self, gpu::Pixel fb_width, gpu::Pixel fb_height
 
 fn gpu::Texture2D LightingContext.result_texture(&self) @inline => self.result_fbo.colors[0];
 
-// Binds: 0 = gbuffer (RGBA8), 1 = palette LUT (17×1 RGBA8), 32 = UBO.
-// Writes to self.result_fbo.colors[0]. No shadow / AO yet (T8/T9).
-fn void LightingContext.dispatch(&self, gpu::Commands* cmd, gpu::Texture2D gbuffer_tex, LightingUniforms* uniforms)
+// Binds: 0 = gbuffer (RGBA8), 1 = palette LUT (17×1 RGBA8),
+//        2 = AO (R8), 32 = UBO. Writes to self.result_fbo.colors[0].
+fn void LightingContext.dispatch(&self, gpu::Commands* cmd, gpu::Texture2D gbuffer_tex, gpu::Texture2D ao_tex, LightingUniforms* uniforms)
 {
     gpu::buffer_upload(self.ubo, uniforms, 0, LightingUniforms.sizeof);
 
@@ -86,6 +86,7 @@ fn void LightingContext.dispatch(&self, gpu::Commands* cmd, gpu::Texture2D gbuff
     cmd.bind_shader(self.shader);
     cmd.bind_texture_2d(0, gbuffer_tex);
     cmd.bind_texture_2d(1, self.palette_lut);
+    cmd.bind_texture_2d(2, ao_tex);
     cmd.bind_ubo(32, self.ubo, 0, LightingUniforms.sizeof);
     cmd.draw_fullscreen_quad();
     cmd.barrier(gpu::BarrierType.FRAMEBUFFER);

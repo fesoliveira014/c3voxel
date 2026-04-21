@@ -63,6 +63,13 @@ fn int main(String[] args)
     }
     defer deferred.destroy();
 
+    render::AoContext ao;
+    if (catch err = ao.init(mem, win.fb_width, win.fb_height)) {
+        io::eprintfn("Failed to load ao shader: %s", err);
+        return 1;
+    }
+    defer ao.destroy();
+
     render::LightingContext lighting;
     if (catch err = lighting.init(mem, win.fb_width, win.fb_height)) {
         io::eprintfn("Failed to load lighting shader: %s", err);
@@ -173,6 +180,7 @@ fn int main(String[] args)
             gpu::shader_reload_if_changed(gen.shader);
             gpu::shader_reload_if_changed(gen.normal_shader);
             gpu::shader_reload_if_changed(rm.shader);
+            gpu::shader_reload_if_changed(ao.shader);
             gpu::shader_reload_if_changed(lighting.shader);
             gpu::shader_reload_if_changed(present.shader);
         }
@@ -228,8 +236,18 @@ fn int main(String[] args)
                           win.fb_width, win.fb_height);
         cmd.time_pop();
 
-        // Lighting pass: palette-lookup albedo + single directional light,
-        // writes the lit color into lighting.result_fbo at window resolution.
+        // AO pass: VQ-style height-based SSAO (24 taps low tier) written
+        // to an R8 target. Sampled by the lighting pass at binding 2.
+        cmd.time_push("ao");
+        if (catch err = ao.resize(win.fb_width, win.fb_height)) {
+            io::eprintfn("Failed to resize AO FBO: %s", err);
+        }
+        ao.dispatch(&cmd, deferred.gbuffer_texture(), win.fb_width, win.fb_height);
+        cmd.time_pop();
+
+        // Lighting pass: palette-lookup albedo + single directional light
+        // with shadow march and AO, writes the lit color into
+        // lighting.result_fbo at window resolution.
         cmd.time_push("lighting");
         if (catch err = lighting.resize(win.fb_width, win.fb_height)) {
             io::eprintfn("Failed to resize lit FBO: %s", err);
@@ -244,9 +262,9 @@ fn int main(String[] args)
             .time_of_day      = tod.t,
             .shadow_step      = 1.0f,
             .shadow_max_steps = 24,
-            .ao_quality_high  = 0,        // reserved for T9
+            .ao_quality_high  = 0,
         };
-        lighting.dispatch(&cmd, deferred.gbuffer_texture(), &lighting_uniforms);
+        lighting.dispatch(&cmd, deferred.gbuffer_texture(), ao.result_texture(), &lighting_uniforms);
         cmd.time_pop();
 
         // Present pass: gamma-correct the lit color onto fbo 0.
