@@ -133,6 +133,8 @@ void main()
 
     int steps_remaining = MAX_STEPS;
     bool done = false;
+    int  hit_page = 0;
+    vec3 hit_wp   = vec3(0.0);
 
     for (int slot = 0; slot < 4 && !done; slot++) {
         int p = order[slot];
@@ -153,12 +155,38 @@ void main()
                 hit_mat  = uint(int(v.b * 255.0 + 0.5));
                 hit_norm = sample_normal(p, uvw);
                 hit_y    = wp.y;
+                hit_page = p;
+                hit_wp   = wp;
                 done     = true;
                 break;
             }
             t_cur += voxel_len;
             steps_remaining--;
         }
+    }
+
+    // Column-max scan. The iso ray's first-hit y is a *surface* value —
+    // for a visible wall face or tree trunk it sits midway up the column,
+    // not at the column top. The heightfield shadow test in lighting.frag
+    // compares against this height; if it's a mid-column value, walls
+    // under-occlude and their ground shadows vanish. Scan straight up in
+    // the hit's page at the hit's xz and keep the highest opaque y —
+    // that's the tallest thing in the column for shadow-casting purposes.
+    // Stays within one page (page is 128 world units wide/tall in xz and
+    // 128 in y, one page per column position).
+    if (hit) {
+        vec3  pmin_h  = page_world_min[hit_page].xyz;
+        vec3  pmax_h  = page_world_max[hit_page].xyz;
+        vec3  psize_h = pmax_h - pmin_h;
+        float col_max = hit_y;
+        for (float cy = volume_max_y - 0.5; cy > hit_y + 0.5; cy -= 1.0) {
+            vec3 q_wp  = vec3(hit_wp.x, cy, hit_wp.z);
+            vec3 q_uvw = (q_wp - pmin_h) / psize_h;
+            if (any(lessThan(q_uvw, vec3(0.0))) || any(greaterThan(q_uvw, vec3(1.0)))) continue;
+            vec4 qv = sample_page(hit_page, q_uvw);
+            if (qv.a > 0.5) { col_max = cy; break; }
+        }
+        hit_y = col_max;
     }
 
     if (!hit) {
