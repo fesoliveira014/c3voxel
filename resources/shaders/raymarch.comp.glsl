@@ -8,12 +8,14 @@ layout(binding = 0) uniform sampler3D  page_volumes[4];
 // `src/voxel/raymarch.c3::dispatch_holder`.
 layout(binding = 4, r8ui) uniform restrict writeonly uimage2D material_out;
 layout(binding = 5, rg8)  uniform restrict writeonly image2D  normal_out;
-layout(binding = 6, r16f) uniform restrict writeonly image2D  height_out;
-// Column-top height at the first-hit xz — the highest opaque voxel in
-// that column. Drives the shadow-march threshold in lighting.frag so
-// wall faces (whose first-hit y is midway up the column) still block.
-// Bindings 8..11 hold page_normals, so this lives at 12.
-layout(binding = 12, r16f) uniform restrict writeonly image2D col_top_out;
+// Packed `(first-hit y, column-top y)` in the same MRT. Column-top is
+// the highest opaque voxel at the hit's xz — needed by the shadow
+// march (heightfield comparison against wall-face first-hit y
+// under-occludes, since the face entry y rises at the same rate as
+// the sun ray). Packed together here so the deferred pass's per-
+// holder sampler count stays at 48 rather than 64 (over the fragment
+// sampler cap on GPUs with MAX_TEXTURE_IMAGE_UNITS = 32).
+layout(binding = 6, rg16f) uniform restrict writeonly image2D height_out;
 
 layout(std140, binding = 7) uniform U {
     vec4  holder_center;                // (cx, 0, cz, 0)
@@ -197,12 +199,10 @@ void main()
     if (!hit) {
         imageStore(material_out, pix, uvec4(0));
         imageStore(normal_out,   pix, vec4(0.5, 0.5, 0.0, 0.0));
-        imageStore(height_out,   pix, vec4(-1.0e30, 0.0, 0.0, 0.0));
-        imageStore(col_top_out,  pix, vec4(-1.0e30, 0.0, 0.0, 0.0));
+        imageStore(height_out,   pix, vec4(-1.0e30, -1.0e30, 0.0, 0.0));
     } else {
         imageStore(material_out, pix, uvec4(hit_mat, 0u, 0u, 0u));
         imageStore(normal_out,   pix, vec4(hit_norm, 0.0, 0.0));
-        imageStore(height_out,   pix, vec4(hit_y,   0.0, 0.0, 0.0));
-        imageStore(col_top_out,  pix, vec4(col_top, 0.0, 0.0, 0.0));
+        imageStore(height_out,   pix, vec4(hit_y, col_top, 0.0, 0.0));
     }
 }

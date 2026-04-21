@@ -74,18 +74,18 @@ fn HolderId? HolderPool.get_or_create(&self, HolderCoord hx, HolderCoord hz, Blo
         return (HolderId)core::handle_pack((uint)idx, (uint)self.storage[idx].generation);
     }
 
-    // M8 holder MRTs: material id (R8UI), octahedral normal (RG8),
-    // first-hit height (R16F), column top height (R16F). Composite picks
-    // a winner per pixel by max first-hit height and forwards both
-    // heights to the screen G-buffer. Column top is the topmost opaque
-    // voxel at the hit's xz — used as the shadow-march threshold so
-    // wall-face pixels (whose first-hit y sits midway up the column)
-    // still block light correctly.
-    gpu::Format[4] color_fmts = {
+    // M8 holder MRTs: material id (R8UI), octahedral normal (RG8), and
+    // `(first-hit y, column-top y)` packed into a single RG16F. Packing
+    // instead of a separate 4th attachment keeps the per-holder sampler
+    // count in the deferred pass at 48 — a 4th attachment would push it
+    // to 64, over the fragment-sampler cap on GPUs where
+    // MAX_TEXTURE_IMAGE_UNITS is 32. Column-top is used in the shadow
+    // march (heightfield test needs the tallest opaque in the column,
+    // not the iso ray's first-hit y which sits midway on wall faces).
+    gpu::Format[3] color_fmts = {
         gpu::Format.R8UI,
         gpu::Format.RG8,
-        gpu::Format.R16F,
-        gpu::Format.R16F,
+        gpu::Format.RG16F,
     };
     gpu::Framebuffer fbo = gpu::framebuffer_create({
         .width    = HOLDER_FBO_SIZE,

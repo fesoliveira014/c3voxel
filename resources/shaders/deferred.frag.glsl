@@ -72,24 +72,6 @@ layout(binding = 46) uniform sampler2D h13h;
 layout(binding = 47) uniform sampler2D h14h;
 layout(binding = 48) uniform sampler2D h15h;
 
-// --- column-top (R16F) — bindings 49..64. ---
-layout(binding = 49) uniform sampler2D h0ct;
-layout(binding = 50) uniform sampler2D h1ct;
-layout(binding = 51) uniform sampler2D h2ct;
-layout(binding = 52) uniform sampler2D h3ct;
-layout(binding = 53) uniform sampler2D h4ct;
-layout(binding = 54) uniform sampler2D h5ct;
-layout(binding = 55) uniform sampler2D h6ct;
-layout(binding = 56) uniform sampler2D h7ct;
-layout(binding = 57) uniform sampler2D h8ct;
-layout(binding = 58) uniform sampler2D h9ct;
-layout(binding = 59) uniform sampler2D h10ct;
-layout(binding = 60) uniform sampler2D h11ct;
-layout(binding = 61) uniform sampler2D h12ct;
-layout(binding = 62) uniform sampler2D h13ct;
-layout(binding = 63) uniform sampler2D h14ct;
-layout(binding = 64) uniform sampler2D h15ct;
-
 layout(std140, binding = 32) uniform U {
     vec4  screen_min[16];
     vec4  screen_max[16];
@@ -139,44 +121,25 @@ vec2 sample_normal(int i, vec2 uv)
     return texture(h15n, uv).rg;
 }
 
-float sample_height(int i, vec2 uv)
+// Sample the RG16F `height` MRT: .r = first-hit y, .g = column-top y.
+vec2 sample_height(int i, vec2 uv)
 {
-    if (i == 0)  return texture(h0h,  uv).r;
-    if (i == 1)  return texture(h1h,  uv).r;
-    if (i == 2)  return texture(h2h,  uv).r;
-    if (i == 3)  return texture(h3h,  uv).r;
-    if (i == 4)  return texture(h4h,  uv).r;
-    if (i == 5)  return texture(h5h,  uv).r;
-    if (i == 6)  return texture(h6h,  uv).r;
-    if (i == 7)  return texture(h7h,  uv).r;
-    if (i == 8)  return texture(h8h,  uv).r;
-    if (i == 9)  return texture(h9h,  uv).r;
-    if (i == 10) return texture(h10h, uv).r;
-    if (i == 11) return texture(h11h, uv).r;
-    if (i == 12) return texture(h12h, uv).r;
-    if (i == 13) return texture(h13h, uv).r;
-    if (i == 14) return texture(h14h, uv).r;
-    return texture(h15h, uv).r;
-}
-
-float sample_col_top(int i, vec2 uv)
-{
-    if (i == 0)  return texture(h0ct,  uv).r;
-    if (i == 1)  return texture(h1ct,  uv).r;
-    if (i == 2)  return texture(h2ct,  uv).r;
-    if (i == 3)  return texture(h3ct,  uv).r;
-    if (i == 4)  return texture(h4ct,  uv).r;
-    if (i == 5)  return texture(h5ct,  uv).r;
-    if (i == 6)  return texture(h6ct,  uv).r;
-    if (i == 7)  return texture(h7ct,  uv).r;
-    if (i == 8)  return texture(h8ct,  uv).r;
-    if (i == 9)  return texture(h9ct,  uv).r;
-    if (i == 10) return texture(h10ct, uv).r;
-    if (i == 11) return texture(h11ct, uv).r;
-    if (i == 12) return texture(h12ct, uv).r;
-    if (i == 13) return texture(h13ct, uv).r;
-    if (i == 14) return texture(h14ct, uv).r;
-    return texture(h15ct, uv).r;
+    if (i == 0)  return texture(h0h,  uv).rg;
+    if (i == 1)  return texture(h1h,  uv).rg;
+    if (i == 2)  return texture(h2h,  uv).rg;
+    if (i == 3)  return texture(h3h,  uv).rg;
+    if (i == 4)  return texture(h4h,  uv).rg;
+    if (i == 5)  return texture(h5h,  uv).rg;
+    if (i == 6)  return texture(h6h,  uv).rg;
+    if (i == 7)  return texture(h7h,  uv).rg;
+    if (i == 8)  return texture(h8h,  uv).rg;
+    if (i == 9)  return texture(h9h,  uv).rg;
+    if (i == 10) return texture(h10h, uv).rg;
+    if (i == 11) return texture(h11h, uv).rg;
+    if (i == 12) return texture(h12h, uv).rg;
+    if (i == 13) return texture(h13h, uv).rg;
+    if (i == 14) return texture(h14h, uv).rg;
+    return texture(h15h, uv).rg;
 }
 
 void main()
@@ -197,12 +160,12 @@ void main()
 
         uint m = sample_material(i, uv);
         if (m == 0u) continue;                    // air / sky in that holder
-        float h = sample_height(i, uv);
-        if (h > best_h) {
-            best_h       = h;
+        vec2 h_ct = sample_height(i, uv);          // .r = first-hit y, .g = col_top
+        if (h_ct.r > best_h) {
+            best_h       = h_ct.r;
+            best_col_top = h_ct.g;
             best_mat     = m;
             best_norm    = sample_normal(i, uv);
-            best_col_top = sample_col_top(i, uv);
         }
     }
 
