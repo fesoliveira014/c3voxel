@@ -56,12 +56,28 @@ fn int main(String[] args)
     }
     defer rm.destroy();
 
-    render::CompositeContext composite;
-    if (catch err = composite.init(mem)) {
-        io::eprintfn("Failed to load composite shader: %s", err);
+    render::DeferredContext deferred;
+    if (catch err = deferred.init(mem, win.fb_width, win.fb_height)) {
+        io::eprintfn("Failed to load deferred shader: %s", err);
         return 1;
     }
-    defer composite.destroy();
+    defer deferred.destroy();
+
+    // Fullscreen blit: copies the G-buffer's packed RGBA8 to the default
+    // framebuffer so the window isn't blank. Temporary — T5+ replaces this
+    // with the palette LUT + lighting pass, which takes the G-buffer as
+    // input and writes lit color to the default framebuffer instead.
+    gpu::ShaderStageSpec[2] blit_specs = {
+        { gpu::ShaderStageKind.VERTEX,   "resources/shaders/fullscreen.vert.glsl" },
+        { gpu::ShaderStageKind.FRAGMENT, "resources/shaders/fullscreen.frag.glsl" },
+    };
+    gpu::Shader? blit_result = gpu::shader_load(mem, blit_specs[..]);
+    if (catch err = blit_result) {
+        io::eprintfn("Failed to load blit shader: %s", err);
+        return 1;
+    }
+    gpu::Shader blit_shader = blit_result;
+    defer gpu::shader_destroy(blit_shader);
 
     voxel::VolumeRing ring;
     ring.init();
@@ -133,10 +149,11 @@ fn int main(String[] args)
         }
 
         if (clock.frame % RELOAD_CHECK_INTERVAL == 0) {
-            gpu::shader_reload_if_changed(composite.shader);
+            gpu::shader_reload_if_changed(deferred.shader);
             gpu::shader_reload_if_changed(gen.shader);
             gpu::shader_reload_if_changed(gen.normal_shader);
             gpu::shader_reload_if_changed(rm.shader);
+            gpu::shader_reload_if_changed(blit_shader);
         }
 
         if (clock.frame > 0 && clock.frame % 60 == 0) {
@@ -161,10 +178,6 @@ fn int main(String[] args)
         cmd.time_pop();
 
         cmd.begin_frame();
-        cmd.bind_default_framebuffer();
-        cmd.set_viewport(0, 0, win.fb_width, win.fb_height);
-        cmd.clear(0.02f, 0.02f, 0.04f, 1.0f);
-        cmd.time_push("composite");
 
         core::Vec4[world::POOL_SIZE] screen_min;
         core::Vec4[world::POOL_SIZE] screen_max;
@@ -183,9 +196,27 @@ fn int main(String[] args)
             alive_mask |= ((uint)1 << i);
         }
 
-        composite.dispatch(&cmd, &pool, &holder_pool,
-                           screen_min[..], screen_max[..], alive_mask,
-                           win.fb_width, win.fb_height);
+        // Deferred pass: build the screen G-buffer (normal / height / mat_id
+        // packed into RGBA8) at window resolution.
+        cmd.time_push("deferred");
+        if (catch err = deferred.resize(win.fb_width, win.fb_height)) {
+            io::eprintfn("Failed to resize G-buffer: %s", err);
+        }
+        deferred.dispatch(&cmd, &pool, &holder_pool,
+                          screen_min[..], screen_max[..], alive_mask,
+                          win.fb_width, win.fb_height);
+        cmd.time_pop();
+
+        // Present: blit the G-buffer to the default framebuffer. T5+
+        // replaces this with the palette-and-lighting pipeline; until then
+        // the window shows a packed-looking grayscale image — expected.
+        cmd.time_push("present");
+        cmd.bind_default_framebuffer();
+        cmd.set_viewport(0, 0, win.fb_width, win.fb_height);
+        cmd.clear(0.02f, 0.02f, 0.04f, 1.0f);
+        cmd.bind_shader(blit_shader);
+        cmd.bind_texture_2d(0, deferred.gbuffer_texture());
+        cmd.draw_fullscreen_quad();
         cmd.time_pop();
 
         cmd.end_frame();
