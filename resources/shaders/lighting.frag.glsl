@@ -37,7 +37,13 @@ layout(std140, binding = 32) uniform LightingU {
 
 const int   MATERIAL_COUNT = 17;
 const float MAX_WORLD_Y    = 128.0;
-const float SHADOW_RANGE   = 64.0;
+// 48 world units is a building-height-and-a-half of reach. Paired with
+// shadow_max_steps=48 (see LightingUniforms wiring in main.c3) it gives
+// one step ≈ one voxel along the sun ray, which is the scale needed to
+// catch narrow occluders like wall-thickness slabs (WALL_RAD_M=2.0) and
+// tree trunks. 64 @ 24 was ~2.7 world units per step — fine for broad
+// terrain hills but skipped over anything slimmer than three voxels.
+const float SHADOW_RANGE   = 48.0;
 
 // Heightfield shadow march from the shaded pixel's world pos toward the
 // sun. Both world and screen positions are interpolated in lockstep so the
