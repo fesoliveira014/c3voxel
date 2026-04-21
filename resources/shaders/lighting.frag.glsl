@@ -47,45 +47,49 @@ const float MAX_WORLD_Y    = 128.0;
 const float SHADOW_RANGE   = 48.0;
 
 // Heightfield shadow march from the shaded pixel's world pos toward the
-// sun. Both world and screen positions are interpolated in lockstep so the
-// inner loop never projects; see docs/lighting.md §3 for the reference.
+// sun. Both world and screen positions are interpolated in lockstep so
+// the inner loop never projects; see docs/lighting.md §3 for the
+// reference.
+//
+// Occlusion model: transmittance accumulation, not hit-ratio. The
+// previous `shadow = 1 - hits / total_opaque` penalised narrow casters:
+// a building wall only flips ~5 of 48 march samples (thin in screen
+// space) giving shadow ≈ 0.9; a tree canopy flips ~15 samples (wide in
+// screen space) giving shadow ≈ 0.7. After `pow(shadow, 3)` the wall's
+// darkening was ~27% vs the tree's ~66% — structurally favoured wide
+// casters and let buildings barely shade the ground. Transmittance
+// treats each opaque hit as a blocker that multiplies visibility by
+// (1 - HIT_ATTEN), so even 3–5 hits produce convincing darkness.
+// Matches the pattern three independent analysts identified; see
+// ultrathink-diagnosed post at commit message.
 float march_shadow(vec3 w_start, vec2 s_start, vec3 w_end, vec2 s_end)
 {
-    float total_hits = 0.0;
-    float total_rays = 0.0;
+    const float HIT_ATTEN   = 0.25;   // per-hit darkening
+    const float MIN_VIS     = 0.15;   // early-out floor — prevents pitch-black
+    const float SHADOW_BIAS = 0.12;   // lower than ratio-model's 0.25; threshold
+                                      // no longer needs pessimism to suppress
+                                      // false hits — transmittance self-limits.
+
+    float visibility = 1.0;
     int   n          = shadow_max_steps;
     for (int i = 1; i <= n; i++) {
         float f = float(i) / float(n);
         vec3  w_cur = mix(w_start, w_end, f);
         vec2  s_cur = mix(s_start, s_end, f);
-        // Screen-space march falls off the visible G-buffer; anything
-        // beyond this is treated as unoccluded.
         if (any(lessThan(s_cur, vec2(0.0))) || any(greaterThan(s_cur, vec2(1.0)))) break;
 
-        vec4  samp   = texture(gbuffer, s_cur);
-        int   mat_id = int(samp.a * 255.0 + 0.5);
-        float opaque = float(mat_id != 0 && mat_id != 12 && mat_id != 14);
-        // Column-top height at this screen pixel — highest opaque voxel
-        // in the world column the view ray hits. Using first-hit height
-        // (samp.b) here under-occludes wall faces because the face
-        // entry-y rises at the same rate as the sun ray, keeping the
-        // comparison perpetually a touch above w_cur.y.
-        float cur_ct  = texture(col_top_tex, s_cur).r * MAX_WORLD_Y;
-        float was_hit = float(cur_ct > w_cur.y + 0.25);
-        total_hits += was_hit * opaque;
-        total_rays += opaque;
+        vec4 samp   = texture(gbuffer, s_cur);
+        int  mat_id = int(samp.a * 255.0 + 0.5);
+        // Sky (0), water (12), glass (14) pass light through.
+        if (mat_id == 0 || mat_id == 12 || mat_id == 14) continue;
+
+        float cur_ct = texture(col_top_tex, s_cur).r * MAX_WORLD_Y;
+        if (cur_ct > w_cur.y + SHADOW_BIAS) {
+            visibility *= (1.0 - HIT_ATTEN);
+            if (visibility < MIN_VIS) return MIN_VIS;
+        }
     }
-    if (total_rays < 1.0) return 1.0;
-    float shadow = 1.0 - clamp(total_hits / total_rays, 0.0, 1.0);
-    // Gentle sharpening. The earlier `smoothstep(0.2, 0.9, shadow)` had
-    // a lower threshold above the algorithm's actual hit-rate range —
-    // clearly-shadowed pixels top out around 25% occlusion (thin wall
-    // slabs, short march windows inside occluders), giving shadow≈0.75
-    // which smoothstep rounded back to fully lit. `pow(shadow, 3.0)`
-    // keeps the same "dark when occluded, bright otherwise" S-curve
-    // without demanding unreachable hit rates: shadow=0.83 → ~0.58
-    // (40% dim), 0.5 → ~0.125 (near-full dark), 0.2 → 0.008 (black).
-    return clamp(pow(shadow, 3.0), 0.0, 1.0);
+    return clamp(visibility, 0.0, 1.0);
 }
 
 void main()
