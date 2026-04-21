@@ -70,11 +70,24 @@ float march_shadow(vec3 w_start, vec2 s_start, vec3 w_end, vec2 s_end)
         int   mat_id = int(samp.a * 255.0 + 0.5);
         // Sky (0), water (12), and glass (14) pass light through.
         float opaque  = float(mat_id != 0 && mat_id != 12 && mat_id != 14);
-        // Plain heightfield test. `cur_h` is now the column-max y (set by
-        // the column-max scan in raymarch.comp.glsl), so wall-face and
-        // trunk-side pixels report the top of the column instead of a
-        // midway surface value — the comparison correctly occludes.
-        float was_hit = float(cur_h > w_cur.y + 1.0);
+        // Material-based occluder override: G-buffer height is the iso
+        // ray's first-hit y, which for visible wall faces and trunk sides
+        // sits midway up the column. Heightfield alone under-occludes.
+        // Counting tall-geometry materials as always-occluder is a coarse
+        // proxy — terrain materials (DIRT/STONE/GRASS) fall through to
+        // the normal heightfield path so flat ground doesn't erroneously
+        // shadow itself. A proper column-max pass (attempted at 075b381
+        // and reverted) would replace this with a clean implementation
+        // once there's a free G-buffer channel for the tallest-y value.
+        bool is_tall_mat = (mat_id == 6)   // MORTAR
+                        || (mat_id == 7)   // WOOD (tree trunks, doors)
+                        || (mat_id == 8)   // BRICK
+                        || (mat_id == 9)   // SHINGLE (roofs)
+                        || (mat_id == 10)  // PLASTER (walls)
+                        || (mat_id == 15); // EARTH
+        float hf_hit  = float(cur_h > w_cur.y + 1.0);
+        float mat_hit = float(is_tall_mat);
+        float was_hit = max(hf_hit, mat_hit);
         total_hits += was_hit * opaque;
         total_rays += opaque;
     }
