@@ -174,25 +174,39 @@ void main()
     }
 
     // Column-top scan: walk straight up from the first hit at its xz,
-    // recording the highest opaque voxel. Stops at the first *air* voxel
-    // above — the column is "solid from hit_y to col_top". Kept in a
-    // SEPARATE MRT (not overwriting hit_y) so the lighting shader can
-    // still reconstruct the pixel's world position from the first-hit
-    // surface. Early-outs on ground (gap at hit_y+1) and roof/canopy
-    // (gap at hit_y+1) — only wall-face pixels actually scan much.
+    // tracking the highest opaque voxel. Must tolerate short air streaks:
+    // building walls are emitted as 3 stacked superellipsoids (half_y=4,
+    // p=4 each), and at off-center columns (d.x != 0) the k-level seams
+    // at y = 40, 48 produce SINGLE-VOXEL air gaps (d.x⁴ + d.y⁴ > 1 right
+    // at the boundary in both adjacent k-levels). A "break on first air"
+    // scan capped col_top at ~y=47 for every off-center wall pixel —
+    // the exact visible-wall-face case — so ground shadows from
+    // buildings never registered. Tree canopies (solid spheres, no gaps)
+    // and centre wall columns (d.x=0) happened to work.
+    //
+    // MAX_AIR_STREAK = 4 covers any 1-voxel wall seam with slack to
+    // spare; genuine top-of-column (canopy/roof/ground → open sky above)
+    // still triggers the break after 4 air voxels.
     if (hit) {
         vec3  pmin_h  = page_world_min[hit_page].xyz;
         vec3  pmax_h  = page_world_max[hit_page].xyz;
         vec3  psize_h = pmax_h - pmin_h;
         col_top = hit_y;
+        int air_streak = 0;
+        const int MAX_AIR_STREAK = 4;
         for (int k = 1; k < 128; k++) {
             vec3 up_wp = vec3(hit_wp.x, hit_wp.y + float(k) * voxel_len, hit_wp.z);
             if (up_wp.y >= pmax_h.y) break;
             vec3 up_uvw = (up_wp - pmin_h) / psize_h;
             if (any(lessThan(up_uvw, vec3(0.0))) || any(greaterThan(up_uvw, vec3(1.0)))) break;
             vec4 up_v = sample_page(hit_page, up_uvw);
-            if (up_v.a < 0.5) break;   // reached air — column ends here
-            col_top = up_wp.y;
+            if (up_v.a < 0.5) {
+                air_streak++;
+                if (air_streak > MAX_AIR_STREAK) break;
+            } else {
+                air_streak = 0;
+                col_top = up_wp.y;
+            }
         }
     }
 
