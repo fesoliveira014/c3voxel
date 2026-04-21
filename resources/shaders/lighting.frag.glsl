@@ -79,11 +79,15 @@ float march_shadow(vec3 w_start, vec2 s_start, vec3 w_end, vec2 s_end)
         total_rays += opaque;
     }
     if (total_rays < 1.0) return 1.0;
-    // Raw lit-fraction, no pow() sharpening. VQ's `pow(shadow, 2.0)` turned
-    // a 50% partial-occlusion pixel into 25% lit — harsh hard edges with
-    // no penumbra. Linear ramp reads much more naturally.
     float shadow = 1.0 - clamp(total_hits / total_rays, 0.0, 1.0);
-    return shadow;
+    // `smoothstep(0.2, 0.9, shadow)` sharpens the lit-vs-shadow boundary.
+    // Before this, a 50% partial-occlusion pixel mapped to 50% lit — the
+    // whole scene read as a smooth gradient with no clear "this is in
+    // shadow" boundary. The S-curve pins heavily-occluded pixels (≤20%
+    // lit rays) to full dark and lightly-occluded (≥90% lit rays) to
+    // full light, with a short midrange penumbra. Matches the original
+    // M8 drop's dramatic look without the `pow()` curve's harshness.
+    return smoothstep(0.2, 0.9, shadow);
 }
 
 void main()
