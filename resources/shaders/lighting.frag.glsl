@@ -95,12 +95,11 @@ void main()
     vec3  sun_lit  = sun_color.rgb     * sun_color.a     * n_dot_l * shadow;
     vec3  ambient  = ambient_color.rgb * ambient_color.a;
 
-    // Simple additive lighting. The earlier `mix(dark, lit, smoothstep)`
-    // two-branch composite (lighting.md §5) collapsed night to pure
-    // ambient*ao while lit_color dropped AO, producing jet-black nights
-    // and a harsh threshold seam at the shadow boundary. One formula with
-    // AO applied consistently gives a predictable day/night/shadow ramp;
-    // intensities in time_of_day.c3 are tuned so `ambient + sun` peaks
-    // below 1.0 at noon, avoiding post-gamma saturation.
-    out_color = vec4(albedo * (ambient + sun_lit) * ao, 1.0);
+    // Simple additive lighting with AO applied only to the ambient/indirect
+    // term (standard PBR convention — AO models indirect occlusion, not
+    // direct sun). Multiplying AO into the whole expression dropped the
+    // scene to near-black because VQ's SSAO formula already power-crushes
+    // the value; applying it just to the ambient branch keeps direct
+    // sunlight crisp while still biting crevices and under-awnings.
+    out_color = vec4(albedo * (ambient * ao + sun_lit), 1.0);
 }

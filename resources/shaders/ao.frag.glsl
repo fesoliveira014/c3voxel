@@ -77,7 +77,12 @@ void main()
     }
 
     float ao = clamp(tot_hits / max(tot_rays, 1e-4), 0.0, 1.0);
-    ao = pow(ao, 6.0);
+    // VQ's `pow(ao, 6.0)` was tuned for the dark/lit smoothstep branch in
+    // lighting.md §5 — that composite blended ambient*ao into a pure-light
+    // branch, so a crushed AO only darkened shadowed pixels. We use AO as
+    // a single ambient-term modulator in lighting.frag, so a softer curve
+    // (^2) keeps lit regions bright while still biting corners.
+    ao = pow(ao, 2.0);
 
     // Standalone R8 target: keep the AO term in .r, zero the rest.
     out_color = vec4(ao, 0.0, 0.0, 0.0);
