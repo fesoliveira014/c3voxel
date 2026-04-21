@@ -45,7 +45,7 @@ const float SHADOW_RANGE   = 64.0;
 float march_shadow(vec3 w_start, vec2 s_start, vec3 w_end, vec2 s_end)
 {
     float total_hits = 0.0;
-    float hit_count  = 0.0;
+    float total_rays = 0.0;
     int   n          = shadow_max_steps;
     for (int i = 1; i <= n; i++) {
         float f = float(i) / float(n);
@@ -58,16 +58,26 @@ float march_shadow(vec3 w_start, vec2 s_start, vec3 w_end, vec2 s_end)
         vec4  samp   = texture(gbuffer, s_cur);
         float cur_h  = samp.b * MAX_WORLD_Y;
         int   mat_id = int(samp.a * 255.0 + 0.5);
-        // +2.0 world-unit bias avoids self-acne at march origin.
-        float was_hit = float(cur_h > w_cur.y + 2.0);
-        // Water (12), glass (14), and air (0) let light through.
+        // Sky (material 0), water (12), and glass (14) pass light through —
+        // they don't count as occluders AND they don't consume a ray.
+        // Counting them as un-occluded rays at VQ did would dilute the ratio
+        // toward zero over long marches, giving near-full-lit for every
+        // pixel including those behind walls.
         float opaque  = float(mat_id != 0 && mat_id != 12 && mat_id != 14);
+        // +1.0 world-unit bias avoids self-acne at march origin. VQ used
+        // +2.0 at a `pixelsPerMeter` > 1 scale; our voxel == 1 world unit
+        // so +1.0 is already comfortably above the packed-height step
+        // (0.5 world units — RGBA8 `.b * 128`).
+        float was_hit = float(cur_h > w_cur.y + 1.0);
         total_hits += was_hit * opaque;
-        hit_count  += opaque;
+        total_rays += opaque;
     }
-    if (hit_count < 1.0) return 1.0;
-    float shadow = 1.0 - clamp(total_hits / hit_count, 0.0, 1.0);
-    return clamp(pow(shadow, 2.0), 0.0, 1.0);
+    if (total_rays < 1.0) return 1.0;
+    // Raw lit-fraction, no pow() sharpening. VQ's `pow(shadow, 2.0)` turned
+    // a 50% partial-occlusion pixel into 25% lit — harsh hard edges with
+    // no penumbra. Linear ramp reads much more naturally.
+    float shadow = 1.0 - clamp(total_hits / total_rays, 0.0, 1.0);
+    return shadow;
 }
 
 void main()
