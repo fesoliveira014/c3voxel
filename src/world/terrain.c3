@@ -8,11 +8,23 @@ import c3voxel::gpu;
 
 const float TERRAIN_NOISE_SCALE = 0.004;
 
-// Flat-terrain h01. Surface world-y = FLAT_TERRAIN_H01 * MAX_HEIGHT (128).
-// 0.25 → y=32 puts the ground above WATER_LEVEL_Y=16 (so trees still
-// qualify) and below the volume top (y=128), leaving ~96 voxels of air
-// for walls, trees, and compositing headroom.
+// Kept for fallbacks where a world position falls outside any loaded
+// block (roads sampling off-block, trees growing across a block seam
+// when the neighbour block isn't in memory). Picked so the flat value
+// sits above WATER_LEVEL_Y=16 but below the volume top (y=128).
 const float FLAT_TERRAIN_H01 = 0.25;
+
+// Deterministic h01 at any world (wx, wz). Matches the fbm2 formula
+// used in generate_heightmap_cpu so callers that only have world
+// coordinates (cross-page trees, off-block road samples) see the same
+// surface height the block's CPU heightmap would have produced.
+fn float terrain_h01_at(float wx, float wz, uint seed) @inline
+{
+    float fx = wx * TERRAIN_NOISE_SCALE;
+    float fz = wz * TERRAIN_NOISE_SCALE;
+    float h  = noise::fbm2(fx, fz, 4, 0.5f, 2.0f, seed);
+    return h * 0.5f + 0.5f;
+}
 
 fn void generate_heightmap_cpu(Allocator allocator, Block* block, uint seed)
 {
@@ -21,7 +33,9 @@ fn void generate_heightmap_cpu(Allocator allocator, Block* block, uint seed)
 
     for (int z = 0; z < n; z++) {
         for (int x = 0; x < n; x++) {
-            buf[z * n + x] = FLAT_TERRAIN_H01;
+            float wx = (float)((int)block.cx * n + x);
+            float wz = (float)((int)block.cz * n + z);
+            buf[z * n + x] = terrain_h01_at(wx, wz, seed);
         }
     }
 

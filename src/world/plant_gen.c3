@@ -293,13 +293,14 @@ fn void flatten_tree(PlantNodeList* scratch, PageGeometry* out, voxel::Material 
     }
 }
 
-// Sample terrain height at (wx, wz). In flat-terrain mode returns a
-// constant world-y matching terrain.c3::FLAT_TERRAIN_H01. Trees land on
-// the flat plane; buildings/roads have already flattened their own patches
-// so local elevation doesn't break placement.
+// Sample terrain height at (wx, wz). Uses the same fbm2 formula as
+// generate_heightmap_cpu so cross-page trees (whose origins sit in a
+// neighbour page/block we don't have a Block* for) still land on the
+// actual terrain surface — identical to the heightmap the origin
+// block will produce when loaded.
 fn float heightmap_sample_at(float wx, float wz) @local
 {
-    return FLAT_TERRAIN_H01 * MAX_HEIGHT;
+    return terrain_h01_at(wx, wz, (uint)TERRAIN_SEED_F) * MAX_HEIGHT;
 }
 
 fn void plant_grow_tree(
